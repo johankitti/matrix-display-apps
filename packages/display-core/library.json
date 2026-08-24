@@ -1,0 +1,13 @@
+{
+  "name": "display-core",
+  "version": "1.0.0",
+  "description": "Shared HUB75 panel bring-up, text/color primitives, UTF-8 folding, generic status screens and night-mode power helpers for the matrix-display apps.",
+  "keywords": ["hub75", "esp32-s3", "matrix", "gfx"],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "dependencies": {
+    "board-config": "*",
+    "mrfaptastic/ESP32 HUB75 LED MATRIX PANEL DMA Display": "^3.0.0",
+    "adafruit/Adafruit GFX Library": "^1.11.0"
+  }
+}

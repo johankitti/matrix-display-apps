@@ -1,0 +1,8 @@
+{
+  "name": "board-config",
+  "version": "1.0.0",
+  "description": "Shared HUB75 -> ESP32-S3-Zero pin map and 64x64 panel geometry for the matrix-display apps. Header-only.",
+  "keywords": ["hub75", "esp32-s3", "matrix", "pinmap"],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}

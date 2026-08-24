@@ -1,0 +1,13 @@
+{
+  "name": "sleep-core",
+  "version": "1.0.0",
+  "description": "Shared night-mode schedule: settings + NVS, web controls, clock (NTP) and deep-sleep-until-morning for the matrix-display apps.",
+  "keywords": ["deep-sleep", "night-mode", "esp32", "rtc", "ntp"],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "dependencies": {
+    "display-core": "*",
+    "settings-core": "*",
+    "web-core": "*"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "net-core",
+  "version": "1.0.0",
+  "description": "Resilient WiFiManager provisioning (headless retry loop) + HTTP(S) fetch helpers shared across the matrix-display apps.",
+  "keywords": ["wifi", "wifimanager", "esp32", "http"],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "dependencies": {
+    "tzapu/WiFiManager": "^2.0.17"
+  }
+}
