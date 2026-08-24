@@ -1,0 +1,8 @@
+{
+  "name": "web-core",
+  "version": "1.0.0",
+  "description": "Shared settings-server shell: WebServer + mDNS bring-up, common Restart / Reconfigure-Wi-Fi handlers, and reusable HTML chrome for the matrix-display apps.",
+  "keywords": ["webserver", "mdns", "esp32", "settings"],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}

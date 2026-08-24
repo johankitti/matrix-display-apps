@@ -1,0 +1,17 @@
+# PlatformIO build output (per-app)
+.pio/
+.pioenvs/
+.piolibdeps/
+apps/*/.pio/
+
+# Wi-Fi credentials — never commit these (golf's optional secrets.h)
+apps/*/include/secrets.h
+include/secrets.h
+
+# Editors / OS
+.vscode/
+.DS_Store
+__pycache__/
+
+# Claude Code local settings
+.claude/

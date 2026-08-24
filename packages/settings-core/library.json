@@ -1,0 +1,8 @@
+{
+  "name": "settings-core",
+  "version": "1.0.0",
+  "description": "NVS-backed settings helpers (PrefsStore wrapper + brightness clamp) shared across the matrix-display apps.",
+  "keywords": ["nvs", "preferences", "settings", "esp32"],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}
