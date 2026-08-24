@@ -23,7 +23,8 @@ String webEsc(const char* s) {
 
 String webPageHead(const char* title) {
   String h = F(
-      "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
+      "<!doctype html><meta charset=utf-8>"
+      "<meta name=viewport content='width=device-width,initial-scale=1'>"
       "<title>");
   h += webEsc(title);
   h += F(
@@ -34,6 +35,7 @@ String webPageHead(const char* title) {
       "input[type=range]{width:100%}.row{display:flex;gap:8px}.row>div{flex:1}"
       "button{margin-top:14px;padding:10px;font-size:15px;border:0;border-radius:6px;background:#116;color:#fff;width:100%}"
       ".st{background:#f1f1f5;border-radius:6px;padding:10px;font-size:13px;margin:8px 0}"
+      ".hint{color:#888;font-size:12px;margin-top:4px}"
       ".sec{border-top:1px solid #ddd;margin-top:16px}"
       "select{width:100%;padding:7px;font-size:15px}"
       "button.alt{background:#555}button.warn{background:#a30}"

@@ -91,16 +91,80 @@ void sleepSave(PrefsStore& store, const NightSettings& s) {
 
 // ---- Web UI -----------------------------------------------------------------
 String sleepWebSection(const NightSettings& s) {
-  String h = F("<form method=post action=/night><div class=sec></div>"
-               "<label><input type=checkbox name=nEn ");
+  // Self-contained, theme-agnostic night-window control: a 24-hour timeline with
+  // two draggable handles and a live "sleeps HH:MM → HH:MM · N h" summary. The
+  // handles write hidden nStart/nEnd fields (hours), so the POST /night handler
+  // is unchanged. Styles/JS are nm-prefixed and scoped to this widget so they
+  // sit happily inside any host page (golf's light theme, buss's dark one, ...).
+  String h = F(
+      "<form method=post action=/night>"
+      "<style>"
+      ".nm-sec{border-top:1px solid rgba(127,127,127,.3);margin-top:16px;padding-top:12px}"
+      ".nm-tgl{display:flex;align-items:center;gap:8px;font-weight:600;text-transform:none;letter-spacing:0}"
+      ".nm-tgl input{width:auto;margin:0}"
+      ".nm-sum{font-weight:600;margin:12px 0 6px;font-variant-numeric:tabular-nums}"
+      ".nm-tl{position:relative;height:46px;border-radius:9px;background:rgba(127,127,127,.18);"
+      "touch-action:none;user-select:none;cursor:pointer}"
+      ".nm-fill{position:absolute;top:0;bottom:0;border-radius:9px;"
+      "background:linear-gradient(180deg,#6366f1,#4338ca);display:none}"
+      ".nm-h{position:absolute;top:-3px;width:14px;height:52px;margin-left:-7px;border-radius:5px;"
+      "background:#fff;border:1px solid rgba(0,0,0,.3);box-shadow:0 1px 5px rgba(0,0,0,.4);"
+      "cursor:ew-resize;touch-action:none;z-index:2}"
+      ".nm-h:focus{outline:2px solid #6366f1;outline-offset:2px}"
+      ".nm-h::after{content:'';position:absolute;left:5px;top:19px;width:4px;height:14px;"
+      "border-left:1px solid #bbb;border-right:1px solid #bbb}"
+      ".nm-scale{display:flex;justify-content:space-between;font-size:11px;opacity:.6;margin:6px 2px 0;"
+      "font-variant-numeric:tabular-nums}"
+      ".nm-off{opacity:.4}"
+      "</style>"
+      "<div class=nm-sec><label class=nm-tgl><input type=checkbox name=nEn id=nmEn ");
   if (s.enabled) h += "checked";
   h += F("> Night mode (panel sleeps)</label>"
-         "<div class=row><div><label>From (h)</label>");
-  h += "<input type=number name=nStart min=0 max=23 value=" + String(s.startHour) + "></div>";
-  h += F("<div><label>To (h)</label>");
-  h += "<input type=number name=nEnd min=0 max=23 value=" + String(s.endHour) + "></div></div>";
+         "<div class=nm-sum id=nmSum></div>"
+         "<div class=nm-tl id=nmTl>"
+         "<div class=nm-fill id=nmFa></div><div class=nm-fill id=nmFb></div>"
+         "<div class=nm-h id=nmHs tabindex=0 role=slider aria-label='Sleep start'></div>"
+         "<div class=nm-h id=nmHe tabindex=0 role=slider aria-label='Sleep end'></div>"
+         "</div>"
+         "<div class=nm-scale><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>");
+  h += "<input type=hidden name=nStart id=nmS value=" + String(s.startHour) + ">";
+  h += "<input type=hidden name=nEnd id=nmE value=" + String(s.endHour) + ">";
+  h += F(
+      "<script>(function(){"
+      "var tl=document.getElementById('nmTl'),hs=document.getElementById('nmHs'),he=document.getElementById('nmHe'),"
+      "fa=document.getElementById('nmFa'),fb=document.getElementById('nmFb'),"
+      "iS=document.getElementById('nmS'),iE=document.getElementById('nmE'),"
+      "sum=document.getElementById('nmSum'),en=document.getElementById('nmEn');"
+      "var st=+iS.value||0,ed=+iE.value||0,drag=null;"
+      "function p(x){return x/24*100}"
+      "function f(x){return (x<10?'0':'')+x+':00'}"
+      "function dur(){var d=ed-st;if(d<=0)d+=24;return d}"
+      "function draw(){"
+      "hs.style.left=p(st)+'%';he.style.left=p(ed)+'%';"
+      "if(st<=ed){fa.style.display='block';fa.style.left=p(st)+'%';fa.style.width=p(ed-st)+'%';fb.style.display='none';}"
+      "else{fa.style.display='block';fa.style.left=p(st)+'%';fa.style.width=p(24-st)+'%';"
+      "fb.style.display='block';fb.style.left='0';fb.style.width=p(ed)+'%';}"
+      "iS.value=st;iE.value=ed;"
+      "sum.innerHTML=en.checked?('\\uD83C\\uDF19 Sleeps '+f(st)+' \\u2192 '+f(ed)+' \\u00B7 '+dur()+' h'):'Night mode off \\u2014 panel stays on';"
+      "tl.classList.toggle('nm-off',!en.checked);}"
+      "function hAt(cx){var r=tl.getBoundingClientRect();var v=Math.round((cx-r.left)/r.width*24);"
+      "return v<0?0:v>23?23:v;}"
+      "function set(cx){var v=hAt(cx);if(drag=='s')st=v;else ed=v;draw();}"
+      "tl.addEventListener('pointerdown',function(e){var r=tl.getBoundingClientRect();"
+      "var v=(e.clientX-r.left)/r.width*24;drag=Math.abs(v-st)<=Math.abs(v-ed)?'s':'e';"
+      "tl.setPointerCapture(e.pointerId);set(e.clientX);e.preventDefault();});"
+      "tl.addEventListener('pointermove',function(e){if(drag)set(e.clientX);});"
+      "tl.addEventListener('pointerup',function(){drag=null;});"
+      "tl.addEventListener('pointercancel',function(){drag=null;});"
+      "function key(w){return function(e){var d=e.key=='ArrowLeft'||e.key=='ArrowDown'?-1:"
+      "e.key=='ArrowRight'||e.key=='ArrowUp'?1:0;if(!d)return;e.preventDefault();"
+      "if(w=='s')st=(st+d+24)%24;else ed=(ed+d+24)%24;draw();};}"
+      "hs.addEventListener('keydown',key('s'));he.addEventListener('keydown',key('e'));"
+      "en.addEventListener('change',draw);draw();"
+      "})();</script>");
 
-  h += F("<label>Timezone (for the night window)</label><select name=tz>");
+  h += F("<label class=nm-tzlbl style='display:block;margin:14px 0 3px;font-weight:600;text-transform:none;letter-spacing:0'>"
+         "Timezone (for the night window)</label><select name=tz>");
   bool tzKnown = false;
   for (size_t i = 0; i < TZ_OPTION_COUNT; i++) {
     bool sel = strcmp(s.timezone, TZ_OPTIONS[i].posix) == 0;

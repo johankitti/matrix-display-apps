@@ -14,17 +14,12 @@ static String selOne(const char* val, const char* label, bool sel) {
 }
 
 static String settingsPage() {
-    String h = F(
-        "<!doctype html><html><head><meta charset=utf-8>"
-        "<meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<title>Pokedex Display</title><style>"
-        "body{font-family:system-ui,sans-serif;max-width:420px;margin:24px auto;padding:0 16px;color:#222}"
-        "h2{margin-bottom:4px}label{display:block;margin:16px 0 4px;font-weight:600}"
-        "input,select{width:100%;padding:9px;font-size:16px;box-sizing:border-box}"
-        "button{margin-top:22px;padding:11px 18px;font-size:16px;border:0;border-radius:6px;"
-        "background:#cc0000;color:#fff}small{color:#666}</style></head><body>"
-        "<h2>Pokedex Display</h2><small>Settings are saved on the device.</small>"
-        "<form method=POST action=/save>");
+    // Uses web-core's shared page chrome (webPageHead) so styling — inputs,
+    // full-width buttons, labels — matches the other apps and stays aligned.
+    String h = webPageHead("Pokedex Display");
+    h += F("<h1>&#128994; Pokedex Display</h1>"
+           "<div class=st>Settings are saved on the device.</div>"
+           "<form method=POST action=/save>");
 
     h += F("<label>Seconds per slide</label>");
     h += "<input type=number name=dur min=" + String(DURATION_MIN_SEC) +
@@ -45,27 +40,18 @@ static String settingsPage() {
     h += "<input type=range name=bri min=" + String(BRIGHTNESS_MIN) +
          " max=" + String(BRIGHTNESS_MAX) + " value=" + String(g_settings.brightness) +
          " oninput=\"this.previousElementSibling.textContent='Brightness ('+this.value+')'\">";
-    h += F("<small>Also adjustable with the knob.</small>");
+    h += F("<div class=hint>Also adjustable with the knob.</div>");
 
     h += "<label>Animation speed (" + String(g_settings.speedPct) + "%)</label>";
     h += "<input type=range name=spd min=" + String(ANIM_SPEED_MIN) +
          " max=" + String(ANIM_SPEED_MAX) + " step=5 value=" + String(g_settings.speedPct) +
          " oninput=\"this.previousElementSibling.textContent='Animation speed ('+this.value+'%)'\">";
-    h += F("<small>100% = the sprites' original speed.</small>");
+    h += F("<div class=hint>100% = the sprites&rsquo; original speed.</div>");
 
     h += F("<button type=submit>Save</button></form>");
 
-    // Night schedule + timezone (shared sleep-core section; posts to /night).
-    h += sleepWebSection(g_settings.night);
-
-    // Separate form so a mis-click can't wipe Wi-Fi while saving settings.
-    // Posts to web-core's shared /wifi handler (erase creds + reboot into setup).
-    h += F("<hr><form method=POST action=/wifi "
-           "onsubmit=\"return confirm('Erase saved Wi-Fi and restart? You will need "
-           "to rejoin the Pokedex-Setup network to reconfigure.')\">"
-           "<button type=submit style='background:#555'>Reconfigure Wi-Fi</button>"
-           "<small>Clears the saved network and reboots into setup.</small>"
-           "</form></body></html>");
+    h += sleepWebSection(g_settings.night);   // night schedule + timezone (shared)
+    h += webActionForms();                    // Restart + Reconfigure Wi-Fi (shared)
     return h;
 }
 
