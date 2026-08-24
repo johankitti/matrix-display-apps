@@ -276,9 +276,11 @@ static void computeCrop(const char* name) {
     if (s_srcY0 > g_ch - s_outH) s_srcY0 = g_ch - s_outH;
     s_offx = (PANEL_WIDTH - s_outW) / 2;          // center on the panel
     s_offy = (spriteAreaH - s_outH) / 2 + SPRITE_OFFSET_Y;
-    // Keep the blit strictly above the name band (SPRITE_OFFSET_Y can nudge the
-    // bottom rows into it; the still version relied on the name drawing last).
-    if (s_offy + s_outH > s_nameTopY) s_outH = s_nameTopY - s_offy;
+    // Keep the blit strictly above the name band, preserving the LAYOUT_GAP so the
+    // sprite never touches the name (SPRITE_OFFSET_Y can nudge the bottom rows down;
+    // the still version relied on the name drawing last).
+    const int spriteBottomLimit = s_nameTopY - LAYOUT_GAP;
+    if (s_offy + s_outH > spriteBottomLimit) s_outH = spriteBottomLimit - s_offy;
 
     // Dex-label box the blit must leave black (matches drawDexLabel's fillRect).
     int nw = (int)strlen(s_dexLabel) * TEXT_CHAR_W;
