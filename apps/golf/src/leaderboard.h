@@ -45,6 +45,7 @@ struct Leaderboard {
   // MODE_NEXT
   char nextName[40];    // upcoming tournament name
   char nextDates[16];   // "AUG 13-16", "AUG 30-SEP 2"
+  time_t nextStart = 0; // first-tee UTC epoch, for the live countdown (0 if unknown)
   NextGolfer nextGolfers[MAX_PINNED_ROWS];
   uint8_t nextGolferCount = 0;
 };

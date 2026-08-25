@@ -20,6 +20,10 @@ void displayLeaderboard(const Leaderboard& lb, bool fetchOk);
 // No-op unless a live board is currently showing. Call periodically (~1 Hz).
 void displayProgress(float frac);
 
+// Redraws the MODE_NEXT screen so its countdown to the first tee ticks. No-op
+// unless `lb` is a NEXT board. Call periodically (~1 Hz) between fetches.
+void displayNextTick(const Leaderboard& lb);
+
 // Animated loading screen (rolling golf ball) with a status line, e.g.
 // "WIFI" / "FETCHING". The animation runs on its own FreeRTOS task, so it
 // keeps moving while the main task blocks on the network. Calling it again
