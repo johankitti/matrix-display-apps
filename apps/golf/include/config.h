@@ -86,7 +86,16 @@ static const size_t PINNED_GOLFER_COUNT =
 
 // 0–255. P2 panels are BRIGHT — 255 at ~30 cm is uncomfortable, and drives
 // the power draw toward the panel's 4 A max. 60–120 is plenty indoors.
+// PANEL_BRIGHTNESS is only the first-boot default; the live value is stored in
+// NVS and set by the rotary encoder (input-core) / web slider.
 #define PANEL_BRIGHTNESS 20   // low for USB-powered bench testing; raise to ~90 on the external supply
+
+// Rotary-encoder brightness knob (input-core). Pins + counts-per-detent come
+// from board-config (GPIO44/14, BOOT switch). These bound + pace the knob:
+#define BRIGHTNESS_MIN          2     // never fully off (0 looks like a dead panel)
+#define BRIGHTNESS_MAX          140   // capped for the 5V/3A supply (see pokedex note)
+#define BRIGHTNESS_STEP         8     // brightness change per encoder detent
+#define BRIGHTNESS_SAVE_IDLE_MS 1500  // persist to NVS this long after the last turn
 
 // Onboard WS2812 RGB LED (Waveshare S3-Zero, GPIO21). Unused by this project;
 // blanked at boot so it doesn't glow a stray color. (Pin from board-config.)

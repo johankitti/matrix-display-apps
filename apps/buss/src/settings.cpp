@@ -17,6 +17,7 @@ void settingsLoad() {
               sizeof(settings.stationName));
   settings.direction = store.u8("dir", 0);
   settings.minMinutes = store.u8("minMin", DEFAULT_MIN_MINUTES);
+  settings.brightness = store.u8("bright", PANEL_BRIGHTNESS);
   sleepLoad(store, settings.night, NIGHT_MODE_ENABLED, NIGHT_START_HOUR,
             NIGHT_END_HOUR, TIMEZONE_POSIX);
   store.end();
@@ -28,6 +29,7 @@ void settingsSave() {
   store.put("name", settings.stationName);
   store.put("dir", settings.direction);
   store.put("minMin", settings.minMinutes);
+  store.put("bright", settings.brightness);
   sleepSave(store, settings.night);
   store.end();
 }

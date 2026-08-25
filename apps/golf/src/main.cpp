@@ -27,6 +27,7 @@
 
 #ifndef WOKWI
 #include <net_core.h>      // shared resilient Wi-Fi provisioning (WiFiManager)
+#include <input_core.h>    // rotary-encoder brightness knob (real hardware only)
 #include "webconfig.h"     // settings web page (golfboard.local)
 #endif
 
@@ -129,13 +130,26 @@ void setup() {
   connectWiFi();
 #ifndef WOKWI
   webconfigBegin(&board, &refreshRequested);
+  inputInit();      // rotary-encoder brightness knob (GPIO44/14 + BOOT switch)
 #endif
   displayLoading("FETCHING");
 }
 
+#ifndef WOKWI
+// Rotary encoder -> live brightness, persisted once the knob goes idle. The
+// read/step/clamp/debounced-save logic is shared (input-core); we hand it golf's
+// brightness field, the clamp/step tuning, and settingsSave to persist.
+static void handleBrightnessKnob() {
+  if (brightnessKnobTick(settings.brightness, BRIGHTNESS_MIN, BRIGHTNESS_MAX,
+                         BRIGHTNESS_STEP, BRIGHTNESS_SAVE_IDLE_MS, settingsSave))
+    Serial.printf("[main] brightness=%u\n", settings.brightness);
+}
+#endif
+
 void loop() {
 #ifndef WOKWI
-  webconfigLoop();  // service the settings web page
+  webconfigLoop();       // service the settings web page
+  handleBrightnessKnob(); // rotary encoder -> live brightness (+ debounced save)
 #endif
   if (refreshRequested) {  // web "Refresh now": force an immediate fetch
     refreshRequested = false;

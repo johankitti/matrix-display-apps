@@ -172,22 +172,58 @@ static void drawCentered(const char* s, int y) {
     dma_display->print(s);
 }
 
-// ---- State 1: loading animation ---------------------------------------------
-// Runs on core 0 so the dots keep cycling while the main loop blocks on a fetch.
+// ---- State 1: "POKEDEX" splash + animated status ----------------------------
+// A static scene (title header + Poké Ball, mirroring golf's leaderboard splash)
+// with an animated status line whose dots cycle on a core-0 task, so it keeps
+// moving while the main loop blocks on a network fetch. Only the status band is
+// repainted each tick; the header + ball are drawn once and left untouched.
 
 static TaskHandle_t s_loadingTask = nullptr;
 static volatile bool s_loadingRun = false;
+static char s_loadingLabel[16] = "Loading";
+
+// Baseline row for the status word: near the bottom, clear of the ball.
+static const int LOADING_STATUS_Y = PANEL_HEIGHT - TEXT_GLYPH_H - 3;   // y=54
+
+// A small Poké Ball centered on (cx, cy): red top, white bottom, black equator
+// and a white centre button. Overhanging pixels land on the black background,
+// so the square band + circles read as a clean ball without extra masking.
+static void drawPokeball(int cx, int cy, int r) {
+    const uint16_t red = MatrixPanel_I2S_DMA::color565(230, 45, 45);
+    dma_display->fillCircle(cx, cy, r, red);                     // whole ball red
+    for (int dy = 1; dy <= r; dy++) {                            // repaint lower half white
+        int half = (int)(sqrtf((float)(r * r - dy * dy)) + 0.5f);
+        dma_display->drawFastHLine(cx - half, cy + dy, 2 * half + 1, white());
+    }
+    dma_display->fillRect(cx - r, cy - 1, 2 * r + 1, 2, 0);      // black equator band
+    dma_display->drawCircle(cx, cy, r, 0);                       // crisp outline
+    dma_display->fillCircle(cx, cy, 3, 0);                       // button ring (black)
+    dma_display->fillCircle(cx, cy, 1, white());                 // button centre
+}
+
+// Draw the static parts of the splash (everything except the animated status).
+static void drawLoadingScene() {
+    dma_display->fillScreen(0);
+    dma_display->setTextSize(1);
+    dma_display->setTextColor(yellow());
+    drawCentered("POKEDEX", 2);              // title header, mirrors golf's splash
+    drawPokeball(PANEL_WIDTH / 2, 29, 10);
+}
 
 static void loadingTaskFn(void*) {
-    const int y = (PANEL_HEIGHT - TEXT_GLYPH_H) / 2;
     int step = 0;
     while (s_loadingRun) {
         int dots = step % 4;
-        dma_display->fillRect(0, y - 1, PANEL_WIDTH, TEXT_GLYPH_H + 2, 0);
+        // Anchor on the widest form ("<label>...") so the word never jumps sideways.
+        char full[20];
+        snprintf(full, sizeof(full), "%s...", s_loadingLabel);
+        int x = (PANEL_WIDTH - (int)strlen(full) * TEXT_CHAR_W) / 2;
+        if (x < 0) x = 0;
+        dma_display->fillRect(0, LOADING_STATUS_Y - 1, PANEL_WIDTH, TEXT_GLYPH_H + 2, 0);
         dma_display->setTextSize(1);
         dma_display->setTextColor(blue());
-        dma_display->setCursor(2, y);          // fixed anchor so "Loading" doesn't jump
-        dma_display->print("Loading");
+        dma_display->setCursor(x, LOADING_STATUS_Y);
+        dma_display->print(s_loadingLabel);
         for (int i = 0; i < dots; i++) dma_display->print('.');
         step++;
         vTaskDelay(pdMS_TO_TICKS(350));
@@ -196,9 +232,11 @@ static void loadingTaskFn(void*) {
     vTaskDelete(nullptr);
 }
 
-void displayLoadingStart() {
-    if (!dma_display || s_loadingTask) return;
-    dma_display->fillScreen(0);
+void displayLoadingStart(const char* label) {
+    if (!dma_display) return;
+    strlcpy(s_loadingLabel, (label && *label) ? label : "Loading", sizeof(s_loadingLabel));
+    if (s_loadingTask) return;               // already animating; label swapped above
+    drawLoadingScene();
     s_loadingRun = true;
     xTaskCreatePinnedToCore(loadingTaskFn, "loading", 4096, nullptr, 1, &s_loadingTask, 0);
 }
@@ -470,17 +508,5 @@ void displaySetup(const char* ssid, const char* ip) {
     dma_display->setTextColor(blue());   dma_display->print(ssid); dma_display->print("\n");
     dma_display->setTextColor(white());  dma_display->print("open:\n");
     dma_display->setTextColor(blue());   dma_display->print(ip);
-    dma_display->setTextWrap(false);
-}
-
-void displayStatus(const char* msg) {
-    displayLoadingStop();
-    if (!dma_display) return;
-    dma_display->fillScreen(0);
-    dma_display->setTextSize(1);
-    dma_display->setTextWrap(true);
-    dma_display->setTextColor(blue());
-    dma_display->setCursor(2, 26);
-    dma_display->print(msg);
     dma_display->setTextWrap(false);
 }

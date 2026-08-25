@@ -9,7 +9,9 @@ also on the web page).
 
 ## Hardware
 Full wiring/power reference: `docs/hardware-reference.md`. Pin map lives in
-`include/config.h`. HUB75 uses GPIO1–13 + 43. Inputs (`src/input.*`):
+`include/config.h`. HUB75 uses GPIO1–13 + 43. The encoder read + brightness-knob
+glue is shared across all apps in `packages/input-core` (pins/counts default in
+board-config, overridable in `config.h`). Inputs:
 - **Rotary encoder** (Bourns PEC11R / electrokit art. 41021049) on GPIO44 (A) +
   GPIO14 (B), common→GND — the two remaining free pins. Turn = brightness.
 - **Button** on GPIO0 = onboard BOOT: at boot it forces the Wi-Fi portal; at
@@ -64,7 +66,8 @@ never both). Keep brightness ~20 while testing on USB; ~90 once on the supply.
   network never blocks animation on core 1 (`pendReady` handshake). Serves the web
   UI via `webTick()`.
 - `src/settings.*` — `Settings` struct (duration / order / animMode / brightness) + NVS load/save.
-- `src/input.*` — ESP32Encoder quadrature (brightness) + BOOT button (next Pokémon).
+- `input-core` (shared) — ESP32Encoder quadrature (brightness) + BOOT button
+  (`inputButtonPressed()` → next Pokémon) + `brightnessKnobTick()` save glue.
 - `src/web.*` — `WebServer` + mDNS settings page.
 - `src/net.*` — Wi-Fi + HTTPS sprite fetch into a PSRAM buffer.
 - `src/display.*` — HUB75 init; one shared PSRAM canvas + crop/blit pipeline used

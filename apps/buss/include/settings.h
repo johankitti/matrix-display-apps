@@ -9,6 +9,7 @@ struct Settings {
   char stationName[48];   // display header, UTF-8 as delivered by the API
   uint8_t direction;      // 0 = both directions, else direction_code 1 or 2
   uint8_t minMinutes;     // hide departures leaving sooner than this (won't make it)
+  uint8_t brightness;     // panel brightness (BRIGHTNESS_MIN..MAX); rotary knob
   NightSettings night;    // night-mode schedule + timezone (sleep-core)
 };
 

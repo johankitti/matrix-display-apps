@@ -86,6 +86,37 @@ Notes:
 
 ---
 
+## 3.5 Rotary encoder — brightness knob (all apps)
+
+A **24-detent quadrature rotary encoder with push switch** (electrokit art.
+41021049 / Bourns PEC11R) sets panel brightness on every app. Turn = brightness
+(± one `BRIGHTNESS_STEP` per click, clamped, saved to NVS ~1.5 s after the last
+turn). The read + glue is shared in `packages/input-core`; pins default in
+`board-config` and can be overridden per app in `config.h`.
+
+HUB75 already uses GPIO1–13 + 43, so the encoder lands on the only free pads:
+
+| Encoder pin | ESP32 pin | Notes |
+|---|---|---|
+| **A** (CLK) | **GPIO44** | side-row pad, silkscreen `RX` (top-right, under `TX`) |
+| **B** (DT)  | **GPIO14** | bottom-edge / back-side pad — solder from the back |
+| **C** (common) | **GND** | any `GND` pin |
+| **SW** (push) | **GPIO0** | onboard **BOOT** button — optional; wire only if you want the click |
+| **+ / VCC** | — | **not connected** (passive switch, internal pull-ups) |
+
+Notes:
+- A common 5-pin encoder module (with a breakout PCB) is labelled `CLK DT SW + GND`.
+  Wire `CLK→44`, `DT→14`, `GND→GND`, `SW→GPIO0`, leave `+` unconnected. A/B may be
+  swapped freely — it only flips turn direction (fix in software by swapping
+  `PIN_ENC_A`/`PIN_ENC_B` if the knob feels backwards).
+- **GPIO0 is a strapping pin.** The push switch is fine to *press at runtime* but
+  must **not be held down during power-up/reset** (it forces the boot loader). If
+  that's a risk, leave SW unconnected — brightness only needs A/B.
+- Internal pull-ups are enabled in firmware (`inputInit()`), so no external
+  resistors are needed.
+
+---
+
 ## 4. Power (see `docs/power-plan.md` for the full reviewed writeup)
 
 **Rule: feed the panel directly; the MCU only taps the rail. No panel current

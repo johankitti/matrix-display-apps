@@ -34,6 +34,28 @@
 #define PIN_STATUS_LED 21
 #endif
 
+// ---- Rotary encoder — brightness knob (electrokit art. 41021049) ------------
+// A 24-detent quadrature encoder + push switch, common shared with all apps.
+// HUB75 consumes GPIO1-13 + 43, so the only free pads are GPIO44 (side row) and
+// GPIO14 (bottom edge); the push switch rides the onboard BOOT button (GPIO0).
+// The encoder is a passive mechanical switch — common -> GND, internal pull-ups
+// on A/B/SW, no VCC. Override any macro before including this header to rewire.
+//   PIN_ENC_A / PIN_ENC_B — quadrature outputs (CLK / DT)
+//   PIN_ENC_SW            — push switch (GPIO0 = BOOT, no extra wire)
+//   ENC_COUNTS_PER_DETENT — full-quadrature counts per physical click (~4)
+#ifndef PIN_ENC_A
+#define PIN_ENC_A  44
+#endif
+#ifndef PIN_ENC_B
+#define PIN_ENC_B  14
+#endif
+#ifndef PIN_ENC_SW
+#define PIN_ENC_SW 0
+#endif
+#ifndef ENC_COUNTS_PER_DETENT
+#define ENC_COUNTS_PER_DETENT 4
+#endif
+
 // ---- HUB75 pin map ----------------------------------------------------------
 #ifdef WOKWI
 // Wokwi simulator build (classic ESP32 devkit — the board whose HUB75 emulation

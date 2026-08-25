@@ -1,0 +1,13 @@
+{
+  "name": "input-core",
+  "version": "1.0.0",
+  "description": "Shared rotary-encoder brightness knob + push button for the matrix-display apps (quadrature read, detent stepping, debounced NVS-save helper).",
+  "keywords": ["rotary-encoder", "brightness", "esp32-s3", "input"],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "dependencies": {
+    "board-config": "*",
+    "display-core": "*",
+    "madhephaestus/ESP32Encoder": "^0.11.0"
+  }
+}

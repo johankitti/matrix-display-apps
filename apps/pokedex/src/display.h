@@ -8,10 +8,13 @@ void displayInit();
 // Blank the whole panel.
 void displayClear();
 
-// State 1: animated "Loading" / "Loading." / ... centered on screen, driven by a
-// background task so it keeps moving during blocking network fetches. Any sprite
-// or status draw stops it automatically; displayLoadingStop() is idempotent.
-void displayLoadingStart();
+// State 1: the "POKEDEX" splash — a title header + Poké Ball, with an animated
+// "<label>" / "<label>." / ... status line whose dots cycle on a background task
+// so it keeps moving during blocking network fetches. `label` is the status word
+// ("Loading" for sprites, "Wifi" while connecting); calling it again just swaps
+// the word without restarting the animation. Any sprite or status draw stops it
+// automatically; displayLoadingStop() is idempotent.
+void displayLoadingStart(const char* label = "Loading");
 void displayLoadingStop();
 
 // Begin animating a GIF held in RAM: opens it, draws the first frame + the "#NNN"
@@ -51,9 +54,6 @@ void displayDrawDuration(int seconds);
 // State 0: Wi-Fi setup screen shown while the captive portal is open — the AP
 // name to join and the portal address.
 void displaySetup(const char* ssid, const char* ip);
-
-// Short status message centered on a blank screen (boot / errors).
-void displayStatus(const char* msg);
 
 // displaySetBrightness() is provided by display-core (display_core.h).
 
