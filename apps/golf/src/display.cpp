@@ -315,22 +315,44 @@ static void wrapTwoLines(const char* src, char* l1, char* l2) {
   }
 }
 
-// MODE_NEXT: what's coming up, and whether the pinned golfers are playing.
+// MODE_NEXT: what's coming up, a live countdown to the first tee, and whether
+// the pinned golfers are playing.
 static void renderNext(const Leaderboard& lb) {
   drawText(PAD, HEADER_BASE, "NEXT UP", C_YELLOW);
   dma_display->drawFastHLine(PAD, HEADER_RULE_Y, PANEL_WIDTH - 2 * PAD, C_DIM);
 
   char l1[17], l2[17];
   wrapTwoLines(lb.nextName, l1, l2);
-  drawText(PAD, 16, l1, C_WHITE);
-  if (l2[0]) drawText(PAD, 22, l2, C_WHITE);
-  drawText(PAD, 30, lb.nextDates, C_GRAY);
+  drawText(PAD, 15, l1, C_WHITE);
+  if (l2[0]) drawText(PAD, 21, l2, C_WHITE);
+  drawText(PAD, 29, lb.nextDates, C_GRAY);
+
+  // Live countdown, recomputed on every repaint so the ~1 Hz tick (main.cpp)
+  // makes it visibly count down. `now` is UTC (set from each fetch's HTTP Date
+  // header); MODE_NEXT only shows after a fetch, so the clock is valid here.
+  time_t now = time(nullptr);
+  if (lb.nextStart > 0 && now > 100000) {
+    long secs = (long)(lb.nextStart - now);
+    if (secs < 0) secs = 0;
+    int days = (int)(secs / 86400);
+    int hrs  = (int)(secs % 86400) / 3600;
+    int mins = (int)(secs % 3600) / 60;
+    int sec  = (int)(secs % 60);
+    // Digits are fixed-width in TomThumb, so the field never shifts as it ticks.
+    // Drop the day field once we're inside 24h so the HH:MM:SS reads bigger.
+    char cd[16];
+    if (days > 0) snprintf(cd, sizeof(cd), "%dD %02d:%02d:%02d", days, hrs, mins, sec);
+    else          snprintf(cd, sizeof(cd), "%02d:%02d:%02d", hrs, mins, sec);
+    // Green as it hits zero — the tee-off moment, right before the board flips
+    // to the live leaderboard on its next fetch.
+    drawText((PANEL_WIDTH - textWidth(cd)) / 2, 38, cd, secs > 0 ? C_CYAN : C_GREEN);
+  }
 
   if (lb.nextGolferCount > 0) {
-    dma_display->drawFastHLine(PAD, 35, PANEL_WIDTH - 2 * PAD, C_DIM);
+    dma_display->drawFastHLine(PAD, 43, PANEL_WIDTH - 2 * PAD, C_DIM);
     for (int i = 0; i < lb.nextGolferCount; i++) {
       const NextGolfer& g = lb.nextGolfers[i];
-      int baseY = 43 + i * ROW_PITCH;
+      int baseY = 50 + i * ROW_PITCH;
       drawText(PAD, baseY, g.name, C_CYAN);
       uint16_t c = C_GRAY;                        // TBD: field not out yet
       if (strcmp(g.status, "IN") == 0) c = C_GREEN;
@@ -338,6 +360,16 @@ static void renderNext(const Leaderboard& lb) {
       drawTextRight(TOTAL_RIGHT, baseY, g.status, c);
     }
   }
+}
+
+// Redraws the NEXT screen so its countdown ticks. No-op unless a NEXT board is
+// the current thing to show. Full-frame repaint + flip (cheap, double-buffered),
+// mirroring displayProgress()'s per-second redraw for the live board. Call ~1 Hz.
+void displayNextTick(const Leaderboard& lb) {
+  if (!dma_display || lb.mode != MODE_NEXT) return;
+  dma_display->clearScreen();
+  renderNext(lb);
+  dma_display->flipDMABuffer();
 }
 
 // MODE_LIVE geometry: flatten the board into one ordered list of rows (leaders

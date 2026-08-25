@@ -153,6 +153,19 @@ static time_t parseIsoDate(const char* s) {
   return utcEpoch(y, m, d, 12, 0, 0);
 }
 
+// Like parseIsoDate but keeps the time-of-day ("2026-08-13T07:00Z" ->
+// 07:00:00 UTC), for the second-resolution countdown on the NEXT screen. The
+// trailing 'Z' means UTC, which is exactly what utcEpoch returns; a rare
+// numeric offset is treated as UTC (a minute or two off — fine for a display
+// countdown). Falls back to noon when no time part is present. 0 on failure.
+static time_t parseIsoDateTime(const char* s) {
+  int y, m, d, hh = 12, mm = 0, ss = 0;
+  if (!s) return 0;
+  int n = sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &m, &d, &hh, &mm, &ss);
+  if (n < 3) return 0;
+  return utcEpoch(y, m, d, hh, mm, ss);
+}
+
 // ("2026-08-13...", "2026-08-16...") -> "AUG 13-16"; across a month
 // boundary -> "AUG 30-SEP 2".
 static void formatDateRange(const char* startIso, const char* endIso,
@@ -574,6 +587,7 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
     startIso = c["startDate"] | "";
     formatDateRange(startIso, c["endDate"] | "", lb.nextDates,
                     sizeof(lb.nextDates));
+    lb.nextStart = parseIsoDateTime(startIso);  // for the live countdown
     break;
   }
   if (!startIso || !*startIso) {

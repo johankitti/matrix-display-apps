@@ -222,5 +222,13 @@ void loop() {
     displayProgress((float)(millis() - lastAttemptMs) / (float)nextDelayMs);
   }
 
+  // On the upcoming-event screen, retick the countdown to the first tee every
+  // second so it visibly counts down between the (infrequent) idle fetches.
+  static uint32_t lastCountdownMs = 0;
+  if (haveData && board.mode == MODE_NEXT && millis() - lastCountdownMs >= 1000) {
+    lastCountdownMs = millis();
+    displayNextTick(board);
+  }
+
   delay(100);
 }
