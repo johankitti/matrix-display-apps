@@ -73,7 +73,7 @@
 #define TEXT_GLYPH_H        7   // visible glyph height
 #define NAME_MAX_LINES      2
 #define NAME_CHARS_PER_LINE (PANEL_WIDTH / TEXT_CHAR_W)   // 10
-#define LAYOUT_GAP          1   // minimal gap between sprite and name
+#define LAYOUT_GAP          0   // no gap between sprite and name (sprite fills down to the name)
 #define NAME_BOTTOM_PAD     1   // blank rows below the name (matches the ~1px inset
                                 // above the dex number), so the name isn't flush
                                 // against the very bottom edge

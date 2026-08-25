@@ -255,8 +255,8 @@ void displayLoadingStop() {
 static void drawDexLabel() {
     if (!dma_display || !s_dexLabel[0]) return;
     int nw = (int)strlen(s_dexLabel) * TEXT_CHAR_W;
-    int nx = PANEL_WIDTH - nw;                 // right-align to the panel edge
-    dma_display->fillRect(nx - 1, 0, nw + 1, TEXT_GLYPH_H + 1, 0);
+    int nx = PANEL_WIDTH - nw - 2;             // right-align, then pull 2px left
+    dma_display->fillRect(nx - 1, 0, PANEL_WIDTH - (nx - 1), TEXT_GLYPH_H + 1, 0);
     dma_display->setTextSize(1);
     dma_display->setTextColor(yellow());
     dma_display->setCursor(nx, 1);
@@ -320,9 +320,10 @@ static void computeCrop(const char* name) {
     const int spriteBottomLimit = s_nameTopY - LAYOUT_GAP;
     if (s_offy + s_outH > spriteBottomLimit) s_outH = spriteBottomLimit - s_offy;
 
-    // Dex-label box the blit must leave black (matches drawDexLabel's fillRect).
+    // Dex-label box the blit must leave black (matches drawDexLabel's fillRect,
+    // which pulls the label 2px left of the panel edge).
     int nw = (int)strlen(s_dexLabel) * TEXT_CHAR_W;
-    s_numLeft = nw ? (PANEL_WIDTH - nw - 1) : PANEL_WIDTH;
+    s_numLeft = nw ? (PANEL_WIDTH - nw - 3) : PANEL_WIDTH;
     s_numBottom = nw ? (TEXT_GLYPH_H + 1) : 0;
 }
 
