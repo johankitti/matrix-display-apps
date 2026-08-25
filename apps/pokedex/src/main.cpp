@@ -1,8 +1,9 @@
 #include <Arduino.h>
 
+#include <input_core.h>   // shared rotary-encoder brightness knob + button
+
 #include "config.h"
 #include "display.h"
-#include "input.h"
 #include "net.h"
 #include "pokemon.h"
 #include "settings.h"
@@ -137,27 +138,13 @@ void setup() {
     requestPrefetch();
 }
 
-// Adjust brightness from the encoder and persist it once the knob goes idle, so we
-// don't hammer NVS while it's being turned.
-static bool     briDirty = false;
-static uint32_t briChangedMs = 0;
-
+// Adjust brightness from the encoder and persist it once the knob goes idle. The
+// read/step/clamp/debounced-save logic is shared (input-core); we just hand it our
+// brightness field, the clamp/step tuning, and settingsSave to persist.
 static void handleBrightnessKnob() {
-    int delta = inputReadDelta();
-    if (delta != 0) {
-        int b = (int)g_settings.brightness + delta * BRIGHTNESS_STEP;
-        if (b < BRIGHTNESS_MIN) b = BRIGHTNESS_MIN;
-        if (b > BRIGHTNESS_MAX) b = BRIGHTNESS_MAX;
-        g_settings.brightness = (uint8_t)b;
-        displaySetBrightness(g_settings.brightness);   // live
-        briDirty = true;
-        briChangedMs = millis();
-    }
-    if (briDirty && millis() - briChangedMs > BRIGHTNESS_SAVE_IDLE_MS) {
-        settingsSave();
-        briDirty = false;
-        Serial.printf("[main] brightness=%u saved\n", g_settings.brightness);
-    }
+    if (brightnessKnobTick(g_settings.brightness, BRIGHTNESS_MIN, BRIGHTNESS_MAX,
+                           BRIGHTNESS_STEP, BRIGHTNESS_SAVE_IDLE_MS, settingsSave))
+        Serial.printf("[main] brightness=%u\n", g_settings.brightness);
 }
 
 void loop() {

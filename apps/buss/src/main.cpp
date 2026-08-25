@@ -10,6 +10,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <display_core.h>    // shared panel object (dma_display) + text/utf8 helpers
+#include <input_core.h>      // rotary-encoder brightness knob + button
 #include <Fonts/TomThumb.h>
 
 #include "config.h"
@@ -176,6 +177,15 @@ void netShowStatus(const char *line1, const char *line2) {
   if (line2) drawText(line2, PAD, FIRST_ROW_Y + ROW_PITCH, COLOR_DEST);
 }
 
+// Rotary encoder -> live brightness, persisted once the knob goes idle. The
+// read/step/clamp/debounced-save logic is shared (input-core); we hand it buss's
+// brightness field, the clamp/step tuning, and settingsSave to persist.
+static void handleBrightnessKnob() {
+  if (brightnessKnobTick(settings.brightness, BRIGHTNESS_MIN, BRIGHTNESS_MAX,
+                         BRIGHTNESS_STEP, BRIGHTNESS_SAVE_IDLE_MS, settingsSave))
+    Serial.printf("[main] brightness=%u\n", settings.brightness);
+}
+
 // ---- arduino entry points ----------------------------------------------------
 void setup() {
   Serial.begin(115200);
@@ -184,7 +194,8 @@ void setup() {
   // display-core does the HUB75 config/pins/begin using board-config's pin map;
   // buss draws with the 3x5 TomThumb font.
   displayCoreInit(false, &TomThumb);
-  displaySetBrightness(PANEL_BRIGHTNESS);
+  displaySetBrightness(settings.brightness);   // saved brightness (knob-adjustable)
+  inputInit();                                 // rotary-encoder brightness knob
 
   statusLed(0, 0, 32);  // blue: connecting
   netStart();           // NVS creds + portal fallback; blocks until connected
@@ -202,6 +213,7 @@ void loop() {
   if (sleepIsNight(settings.night)) sleepUntilMorning(settings.night);
 
   webHandle();
+  handleBrightnessKnob();   // rotary encoder -> live brightness (+ debounced save)
 
   // Transient drops recover via WiFi.setAutoReconnect; fetches just fail and
   // retry meanwhile, keeping the last good rows + stale marker on screen.

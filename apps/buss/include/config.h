@@ -11,8 +11,17 @@
 
 // Brightness 0-255. ~20 is safe on USB power while testing; ~90 is comfortable
 // indoors once running off the dedicated 5V supply. This display is mostly-dark
-// text so current draw is far below the full-white worst case.
+// text so current draw is far below the full-white worst case. PANEL_BRIGHTNESS
+// is only the first-boot default; the live value is stored in NVS and set by the
+// rotary encoder (input-core).
 #define PANEL_BRIGHTNESS 20
+
+// Rotary-encoder brightness knob (input-core). Pins + counts-per-detent come
+// from board-config (GPIO44/14, BOOT switch). These bound + pace the knob:
+#define BRIGHTNESS_MIN          2     // never fully off (0 looks like a dead panel)
+#define BRIGHTNESS_MAX          140   // capped for the 5V/3A supply (see pokedex note)
+#define BRIGHTNESS_STEP         8     // brightness change per encoder detent
+#define BRIGHTNESS_SAVE_IDLE_MS 1500  // persist to NVS this long after the last turn
 
 // ---- Night mode (sleep-core) -------------------------------------------------
 // First-boot defaults for the night schedule; after that the values live in NVS

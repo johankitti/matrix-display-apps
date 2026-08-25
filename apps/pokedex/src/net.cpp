@@ -7,8 +7,10 @@
 // net-core drives Wi-Fi bring-up and reports progress through plain function
 // pointers, so the display callbacks below are non-capturing free functions.
 
-// Shown while net-core patiently retries the saved network on each attempt.
-static void onWifiConnecting() { displayStatus("connecting\nto Wi-Fi..."); }
+// Shown while net-core patiently retries the saved network on each attempt: the
+// POKEDEX splash with an animated "Wifi..." status (dots keep cycling through the
+// multi-minute connect window, so the panel doesn't look frozen).
+static void onWifiConnecting() { displayLoadingStart("Wifi"); }
 
 // Shown when the setup access point comes up, so Wi-Fi can be configured from a
 // phone (join the AP, browse to the portal IP) — no serial console needed.
