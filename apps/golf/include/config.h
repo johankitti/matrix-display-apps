@@ -19,6 +19,13 @@
 #define ESPN_SCOREBOARD_URL \
   "https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard"
 
+// ESPN's keyless scoreboard "header" feed. Unlike the scoreboard above, it
+// carries per-player tee times (status.teeTime) for the upcoming event days
+// ahead — the scoreboard only publishes them close to the round. Used to seed
+// the NEXT screen's first-tee countdown and, within 24h, the pinned tee times.
+#define ESPN_HEADER_URL \
+  "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=golf&league=pga"
+
 // How often to refresh, and how quickly to retry after a failed fetch.
 // When no tournament is live the board shows the upcoming event instead,
 // which changes rarely — so it refreshes at the slower idle rate.

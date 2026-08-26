@@ -29,6 +29,7 @@ struct GolferRow {
 struct NextGolfer {
   char name[10];
   char status[4];  // "IN" (in the field), "OUT" (not entered), "TBD"
+  char tee[6];     // local tee time "HH:MM" once the draw is out; "" otherwise
 };
 
 struct Leaderboard {
