@@ -697,6 +697,20 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
 // Entry point
 // ---------------------------------------------------------------------------
 
+// The end of a tournament's window: the calendar endDate (a UTC timestamp that
+// rolls a day past the final round) for the calendar entry whose start matches
+// `ev`. Returns 0 if no match. Used to keep a just-finished event's leaderboard
+// up for a grace period instead of immediately flipping to the next countdown.
+static time_t eventEndFromCalendar(const JsonDocument& doc, JsonObjectConst ev) {
+  time_t evStart = parseIsoDate(ev["date"] | "");
+  if (evStart == 0) return 0;
+  for (JsonObjectConst c : doc["leagues"][0]["calendar"].as<JsonArrayConst>()) {
+    if (parseIsoDate(c["startDate"] | "") == evStart)
+      return parseIsoDate(c["endDate"] | "");
+  }
+  return 0;
+}
+
 bool fetchLeaderboard(Leaderboard& out) {
   // Filter: of the ~1.3 MB response, keep only these fields (~50 KB).
   JsonDocument filter;
@@ -747,6 +761,8 @@ bool fetchLeaderboard(Leaderboard& out) {
   // isn't Final. While scanning, note the latest genuinely-finished (Final)
   // event so the "next" screen can skip a tournament that just ended (fillNext).
   JsonObjectConst liveEvent;
+  JsonObjectConst finalEvent;  // most recent genuinely-finished event this feed
+  JsonObjectConst preEvent;    // the upcoming (not-yet-started) event, if any
   time_t completedStart = 0;
   for (JsonObjectConst ev : doc["events"].as<JsonArrayConst>()) {
     JsonObjectConst type = ev["competitions"][0]["status"]["type"];
@@ -758,15 +774,38 @@ bool fetchLeaderboard(Leaderboard& out) {
     }
     if (strcmp(st, "post") == 0) {  // STATUS_FINAL: note it so fillNext skips it
       time_t s = parseIsoDate(ev["date"] | "");
-      if (s > completedStart) completedStart = s;
+      if (s > completedStart) {
+        completedStart = s;
+        finalEvent = ev;
+      }
+    } else if (strcmp(st, "pre") == 0 && preEvent.isNull()) {
+      preEvent = ev;  // its competitor list is the field once the draw is out
     }
   }
 
+  // Treat a tournament as "leaderboard-worthy" for a day either side of play, so
+  // the board tracks the event rather than a countdown to a single pick:
+  //   * within 24h AFTER the trophy's lifted -> keep the final leaderboard;
+  //   * within 24h BEFORE the first tee      -> show the field (par + tee times).
+  // A live event still wins outright.
   Leaderboard lb;  // build into a temp so `out` stays intact on failure
   if (!liveEvent.isNull()) {
     fillLive(lb, liveEvent);
+  } else if (!finalEvent.isNull() && now > 100000 &&
+             now < eventEndFromCalendar(doc, finalEvent) + 86400) {
+    // Just finished: hold the final standings up rather than flip to "next up".
+    fillLive(lb, finalEvent);
   } else {
     fillNext(lb, doc, now, completedStart, &allocator);
+    // fillNext seeds lb.nextStart with the real earliest tee time (header feed).
+    // Once that's within 24h the event is imminent enough to render as a live
+    // leaderboard: everyone at par with their tee times, including any pick's.
+    if (!preEvent.isNull() && lb.nextStart > 0 && now > 100000 &&
+        lb.nextStart - now <= 86400) {
+      Leaderboard live;
+      fillLive(live, preEvent);
+      if (live.leaderCount > 0) lb = live;  // only if the field is populated
+    }
   }
 
   out = lb;
