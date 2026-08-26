@@ -384,8 +384,31 @@ static bool classifyOut(JsonObjectConst c, int round, char* badge, size_t n) {
   return false;
 }
 
+// Case- and accent-insensitive full-name match, for lining a scoreboard athlete
+// up with the header feed's tee-time list (both carry ESPN display names).
+static bool sameDisplayName(const char* a, const char* b) {
+  char fa[48], fb[48];
+  asciiFold(a, fa, sizeof(fa));
+  asciiFold(b, fb, sizeof(fb));
+  return strcasecmp(fa, fb) == 0;
+}
+
+// The scoreboard omits tee times until a round is imminent; the header feed
+// (passed to fillLive as `teeSource`) carries them days ahead. Writes the local
+// "HH:MM" for `fullName` into `out`, or leaves `out` untouched if not found.
+static void teeTimeFromHeader(JsonArrayConst teeSource, const char* fullName,
+                              char* out, size_t outSize) {
+  for (JsonObjectConst c : teeSource) {
+    if (sameDisplayName(c["displayName"] | "", fullName)) {
+      time_t tee = parseIsoDateTime(c["status"]["teeTime"] | "");
+      if (tee > 0) epochToLocalHM(tee, out, outSize);
+      return;
+    }
+  }
+}
+
 static void fillRow(GolferRow& row, JsonObjectConst c, const char* compState,
-                    int period) {
+                    int period, JsonArrayConst teeSource = JsonArrayConst()) {
   surnameOf(c["athlete"]["displayName"] | "?", row.name, sizeof(row.name));
 
   // Total score to par: ESPN sends a display string ("-14", "E") but be
@@ -446,6 +469,13 @@ static void fillRow(GolferRow& row, JsonObjectConst c, const char* compState,
     }
     break;
   }
+
+  // Before a round is imminent the scoreboard carries no tee time (the loop
+  // above found nothing); fall back to the header feed's draw when one was
+  // supplied — this is what fills the within-24h pre-tournament leaderboard.
+  if (row.tee[0] == 0 && !teeSource.isNull())
+    teeTimeFromHeader(teeSource, c["athlete"]["displayName"] | "", row.tee,
+                      sizeof(row.tee));
 }
 
 // Between rounds ESPN publishes the next round's tee times into that round's
@@ -468,7 +498,8 @@ static bool roundHasTeeTimes(JsonArrayConst competitors, int period) {
   return false;
 }
 
-static void fillLive(Leaderboard& lb, JsonObjectConst event) {
+static void fillLive(Leaderboard& lb, JsonObjectConst event,
+                     JsonArrayConst teeSource = JsonArrayConst()) {
   lb.mode = MODE_LIVE;
 
   const char* rawName = event["shortName"] | (const char*)(event["name"] | "PGA TOUR");
@@ -539,12 +570,12 @@ static void fillLive(Leaderboard& lb, JsonObjectConst event) {
     bool isPinned = matchesAnyPinned(c["athlete"]["displayName"] | "");
     if (lb.leaderCount < leaderSlots) {
       GolferRow& r = lb.leaders[lb.leaderCount++];
-      fillRow(r, c, rowState, period);
+      fillRow(r, c, rowState, period, teeSource);
       if (!r.out) assignPosition(r, scores, nScores);
       r.selected = isPinned;  // a pick among the top rows stays highlighted
     } else if (isPinned && lb.pinnedCount < pinnedSlots) {
       GolferRow& r = lb.pinned[lb.pinnedCount++];
-      fillRow(r, c, rowState, period);
+      fillRow(r, c, rowState, period, teeSource);
       if (!r.out) assignPosition(r, scores, nScores);
       r.selected = true;
     }
@@ -568,10 +599,16 @@ static void fillLive(Leaderboard& lb, JsonObjectConst event) {
 // only when the header's event is the same tournament we're showing (matched by
 // start day), so tee times never land on the wrong event. Best-effort: on any
 // failure nextStart stays 0 (no countdown) and tees stay blank.
-static void fillNextTeeTimes(Leaderboard& lb, const char* startIso,
-                             ArduinoJson::Allocator* allocator) {
+// Fetches the header feed (which carries per-player tee times days ahead) into
+// `doc`, but only when its event's start day matches `matchDateIso` (a
+// "YYYY-MM-DD..." string) — so tee times never come from the wrong tournament.
+// One retry: this host's TLS handshake fails intermittently, as the scoreboard
+// host's does. Returns true with `doc` holding the header event; false (and
+// `doc` unusable) on any network error or date mismatch. `doc` must have been
+// constructed with the caller's allocator, since its parsed body outlives this.
+static bool fetchHeaderEvent(JsonDocument& doc, const char* matchDateIso) {
   int wy, wm, wd;
-  if (sscanf(startIso, "%d-%d-%d", &wy, &wm, &wd) != 3) return;
+  if (sscanf(matchDateIso, "%d-%d-%d", &wy, &wm, &wd) != 3) return false;
 
   JsonDocument filter;
   JsonObject fEv = filter["sports"].add<JsonObject>()["leagues"]
@@ -581,19 +618,23 @@ static void fillNextTeeTimes(Leaderboard& lb, const char* startIso,
   fc["displayName"] = true;
   fc["status"]["teeTime"] = true;
 
-  // A single TLS handshake to this host fails intermittently (as the scoreboard
-  // host does too); one retry clears it in practice.
-  JsonDocument doc(allocator);
   bool ok = false;
   for (int attempt = 0; attempt < 2 && !ok; attempt++)
     ok = getJson(ESPN_HEADER_URL, doc, filter, nullptr);
-  if (!ok) return;  // no tee times this cycle: countdown stays off, tees blank
+  if (!ok) return false;
 
   JsonObjectConst ev = doc["sports"][0]["leagues"][0]["events"][0];
   int ey, em, ed;
-  if (sscanf(ev["date"] | "", "%d-%d-%d", &ey, &em, &ed) != 3) return;
-  if (ey != wy || em != wm || ed != wd) return;  // header shows a different event
+  if (sscanf(ev["date"] | "", "%d-%d-%d", &ey, &em, &ed) != 3) return false;
+  return ey == wy && em == wm && ed == wd;  // false if header shows another event
+}
 
+static void fillNextTeeTimes(Leaderboard& lb, const char* startIso,
+                             ArduinoJson::Allocator* allocator) {
+  JsonDocument doc(allocator);
+  if (!fetchHeaderEvent(doc, startIso)) return;  // countdown off, tees blank
+
+  JsonObjectConst ev = doc["sports"][0]["leagues"][0]["events"][0];
   time_t earliest = 0;
   for (JsonObjectConst c : ev["competitors"].as<JsonArrayConst>()) {
     time_t tee = parseIsoDateTime(c["status"]["teeTime"] | "");
@@ -697,6 +738,20 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
 // Entry point
 // ---------------------------------------------------------------------------
 
+// The end of a tournament's window: the calendar endDate (a UTC timestamp that
+// rolls a day past the final round) for the calendar entry whose start matches
+// `ev`. Returns 0 if no match. Used to keep a just-finished event's leaderboard
+// up for a grace period instead of immediately flipping to the next countdown.
+static time_t eventEndFromCalendar(const JsonDocument& doc, JsonObjectConst ev) {
+  time_t evStart = parseIsoDate(ev["date"] | "");
+  if (evStart == 0) return 0;
+  for (JsonObjectConst c : doc["leagues"][0]["calendar"].as<JsonArrayConst>()) {
+    if (parseIsoDate(c["startDate"] | "") == evStart)
+      return parseIsoDate(c["endDate"] | "");
+  }
+  return 0;
+}
+
 bool fetchLeaderboard(Leaderboard& out) {
   // Filter: of the ~1.3 MB response, keep only these fields (~50 KB).
   JsonDocument filter;
@@ -747,6 +802,8 @@ bool fetchLeaderboard(Leaderboard& out) {
   // isn't Final. While scanning, note the latest genuinely-finished (Final)
   // event so the "next" screen can skip a tournament that just ended (fillNext).
   JsonObjectConst liveEvent;
+  JsonObjectConst finalEvent;  // most recent genuinely-finished event this feed
+  JsonObjectConst preEvent;    // the upcoming (not-yet-started) event, if any
   time_t completedStart = 0;
   for (JsonObjectConst ev : doc["events"].as<JsonArrayConst>()) {
     JsonObjectConst type = ev["competitions"][0]["status"]["type"];
@@ -758,15 +815,46 @@ bool fetchLeaderboard(Leaderboard& out) {
     }
     if (strcmp(st, "post") == 0) {  // STATUS_FINAL: note it so fillNext skips it
       time_t s = parseIsoDate(ev["date"] | "");
-      if (s > completedStart) completedStart = s;
+      if (s > completedStart) {
+        completedStart = s;
+        finalEvent = ev;
+      }
+    } else if (strcmp(st, "pre") == 0 && preEvent.isNull()) {
+      preEvent = ev;  // its competitor list is the field once the draw is out
     }
   }
 
+  // Treat a tournament as "leaderboard-worthy" for a day either side of play, so
+  // the board tracks the event rather than a countdown to a single pick:
+  //   * within 24h AFTER the trophy's lifted -> keep the final leaderboard;
+  //   * within 24h BEFORE the first tee      -> show the field (par + tee times).
+  // A live event still wins outright.
   Leaderboard lb;  // build into a temp so `out` stays intact on failure
   if (!liveEvent.isNull()) {
     fillLive(lb, liveEvent);
+  } else if (!finalEvent.isNull() && now > 100000 &&
+             now < eventEndFromCalendar(doc, finalEvent) + 86400) {
+    // Just finished: hold the final standings up rather than flip to "next up".
+    fillLive(lb, finalEvent);
   } else {
     fillNext(lb, doc, now, completedStart, &allocator);
+    // fillNext seeds lb.nextStart with the real earliest tee time (header feed).
+    // Once that's within 24h the event is imminent enough to render as a live
+    // leaderboard: everyone at par with their tee times, including any pick's.
+    if (!preEvent.isNull() && lb.nextStart > 0 && now > 100000 &&
+        lb.nextStart - now <= 86400) {
+      // The scoreboard has no tee times yet this far out, so pull the draw from
+      // the header feed and hand it to fillLive as each row's tee-time source.
+      // hdrDoc must outlive fillLive (it reads teeSource), so keep it in scope.
+      JsonDocument hdrDoc(&allocator);
+      JsonArrayConst teeSource;
+      if (fetchHeaderEvent(hdrDoc, preEvent["date"] | ""))
+        teeSource = hdrDoc["sports"][0]["leagues"][0]["events"][0]
+                        ["competitors"].as<JsonArrayConst>();
+      Leaderboard live;
+      fillLive(live, preEvent, teeSource);
+      if (live.leaderCount > 0) lb = live;  // only if the field is populated
+    }
   }
 
   out = lb;
