@@ -315,8 +315,8 @@ static void wrapTwoLines(const char* src, char* l1, char* l2) {
   }
 }
 
-// MODE_NEXT: what's coming up, a live countdown to the first tee, and whether
-// the pinned golfers are playing.
+// MODE_NEXT: what's coming up, a live countdown to the first tee, and either the
+// pinned golfers' entry status or — within 24h of the first tee — their tee times.
 static void renderNext(const Leaderboard& lb) {
   drawText(PAD, HEADER_BASE, "NEXT UP", C_YELLOW);
   dma_display->drawFastHLine(PAD, HEADER_RULE_Y, PANEL_WIDTH - 2 * PAD, C_DIM);
@@ -327,12 +327,13 @@ static void renderNext(const Leaderboard& lb) {
   if (l2[0]) drawText(PAD, 21, l2, C_WHITE);
   drawText(PAD, 29, lb.nextDates, C_GRAY);
 
-  // Live countdown, recomputed on every repaint so the ~1 Hz tick (main.cpp)
-  // makes it visibly count down. `now` is UTC (set from each fetch's HTTP Date
-  // header); MODE_NEXT only shows after a fetch, so the clock is valid here.
+  // Live countdown to the first tee, recomputed on every repaint so the ~1 Hz
+  // tick (main.cpp) makes it visibly count down. `now` is UTC (set from each
+  // fetch's HTTP Date header); MODE_NEXT only shows after a fetch, so it's valid.
   time_t now = time(nullptr);
+  long secs = -1;
   if (lb.nextStart > 0 && now > 100000) {
-    long secs = (long)(lb.nextStart - now);
+    secs = (long)(lb.nextStart - now);
     if (secs < 0) secs = 0;
     int days = (int)(secs / 86400);
     int hrs  = (int)(secs % 86400) / 3600;
@@ -348,16 +349,28 @@ static void renderNext(const Leaderboard& lb) {
     drawText((PANEL_WIDTH - textWidth(cd)) / 2, 38, cd, secs > 0 ? C_CYAN : C_GREEN);
   }
 
+  // Inside 24h the draw is firm, so swap each pinned golfer's entry status for
+  // their actual tee time (when the header feed gave us one).
+  bool showTees = secs >= 0 && secs <= 86400;
+
   if (lb.nextGolferCount > 0) {
     dma_display->drawFastHLine(PAD, 43, PANEL_WIDTH - 2 * PAD, C_DIM);
+    int shown = 0;
     for (int i = 0; i < lb.nextGolferCount; i++) {
       const NextGolfer& g = lb.nextGolfers[i];
-      int baseY = 50 + i * ROW_PITCH;
+      // In the tee-time (leaderboard) view, drop picks that aren't in the
+      // field — a start list only lists players who are actually teeing off.
+      if (showTees && strcmp(g.status, "OUT") == 0) continue;
+      int baseY = 50 + shown++ * ROW_PITCH;
       drawText(PAD, baseY, g.name, C_CYAN);
-      uint16_t c = C_GRAY;                        // TBD: field not out yet
-      if (strcmp(g.status, "IN") == 0) c = C_GREEN;
-      else if (strcmp(g.status, "OUT") == 0) c = C_ORANGE;
-      drawTextRight(TOTAL_RIGHT, baseY, g.status, c);
+      if (showTees && g.tee[0]) {
+        drawTextRight(TOTAL_RIGHT, baseY, g.tee, C_WHITE);
+      } else {
+        uint16_t c = C_GRAY;                        // TBD: field not out yet
+        if (strcmp(g.status, "IN") == 0) c = C_GREEN;
+        else if (strcmp(g.status, "OUT") == 0) c = C_ORANGE;
+        drawTextRight(TOTAL_RIGHT, baseY, g.status, c);
+      }
     }
   }
 }

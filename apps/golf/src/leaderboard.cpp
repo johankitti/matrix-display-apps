@@ -153,17 +153,20 @@ static time_t parseIsoDate(const char* s) {
   return utcEpoch(y, m, d, 12, 0, 0);
 }
 
-// Like parseIsoDate but keeps the time-of-day ("2026-08-13T07:00Z" ->
-// 07:00:00 UTC), for the second-resolution countdown on the NEXT screen. The
-// trailing 'Z' means UTC, which is exactly what utcEpoch returns; a rare
-// numeric offset is treated as UTC (a minute or two off — fine for a display
-// countdown). Falls back to noon when no time part is present. 0 on failure.
+// "2026-08-27T15:00Z" / "2026-08-27T15:00:00Z" -> UTC epoch, keeping the time
+// of day (the header feed's tee times are always UTC 'Z'). 0 on failure.
 static time_t parseIsoDateTime(const char* s) {
-  int y, m, d, hh = 12, mm = 0, ss = 0;
-  if (!s) return 0;
-  int n = sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &m, &d, &hh, &mm, &ss);
-  if (n < 3) return 0;
+  int y, m, d, hh, mm, ss = 0;
+  if (!s || sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &m, &d, &hh, &mm, &ss) < 5)
+    return 0;
   return utcEpoch(y, m, d, hh, mm, ss);
+}
+
+// UTC epoch -> board-local "HH:MM" (TZ is set in main.cpp).
+static void epochToLocalHM(time_t utc, char* out, size_t outSize) {
+  struct tm lt;
+  localtime_r(&utc, &lt);
+  snprintf(out, outSize, "%02d:%02d", lt.tm_hour, lt.tm_min);
 }
 
 // ("2026-08-13...", "2026-08-16...") -> "AUG 13-16"; across a month
@@ -558,6 +561,53 @@ static void fillLive(Leaderboard& lb, JsonObjectConst event) {
 // every pinned golfer shows TBD.
 // ---------------------------------------------------------------------------
 
+// The scoreboard endpoint only carries tee times close to the round, but the
+// keyless "header" feed publishes the upcoming event's draw days ahead. Fetch
+// it to (1) seed the first-tee countdown with the earliest real tee time and
+// (2) fill each pinned golfer's tee time for the within-24h start list. Applied
+// only when the header's event is the same tournament we're showing (matched by
+// start day), so tee times never land on the wrong event. Best-effort: on any
+// failure nextStart stays 0 (no countdown) and tees stay blank.
+static void fillNextTeeTimes(Leaderboard& lb, const char* startIso,
+                             ArduinoJson::Allocator* allocator) {
+  int wy, wm, wd;
+  if (sscanf(startIso, "%d-%d-%d", &wy, &wm, &wd) != 3) return;
+
+  JsonDocument filter;
+  JsonObject fEv = filter["sports"].add<JsonObject>()["leagues"]
+                       .add<JsonObject>()["events"].add<JsonObject>();
+  fEv["date"] = true;
+  JsonObject fc = fEv["competitors"].add<JsonObject>();
+  fc["displayName"] = true;
+  fc["status"]["teeTime"] = true;
+
+  // A single TLS handshake to this host fails intermittently (as the scoreboard
+  // host does too); one retry clears it in practice.
+  JsonDocument doc(allocator);
+  bool ok = false;
+  for (int attempt = 0; attempt < 2 && !ok; attempt++)
+    ok = getJson(ESPN_HEADER_URL, doc, filter, nullptr);
+  if (!ok) return;  // no tee times this cycle: countdown stays off, tees blank
+
+  JsonObjectConst ev = doc["sports"][0]["leagues"][0]["events"][0];
+  int ey, em, ed;
+  if (sscanf(ev["date"] | "", "%d-%d-%d", &ey, &em, &ed) != 3) return;
+  if (ey != wy || em != wm || ed != wd) return;  // header shows a different event
+
+  time_t earliest = 0;
+  for (JsonObjectConst c : ev["competitors"].as<JsonArrayConst>()) {
+    time_t tee = parseIsoDateTime(c["status"]["teeTime"] | "");
+    if (tee == 0) continue;
+    if (earliest == 0 || tee < earliest) earliest = tee;
+    const char* fullName = c["displayName"] | "";
+    for (uint8_t i = 0; i < lb.nextGolferCount; i++) {
+      if (nameMatchesPattern(fullName, settings.pinned[i]))
+        epochToLocalHM(tee, lb.nextGolfers[i].tee, sizeof(lb.nextGolfers[i].tee));
+    }
+  }
+  lb.nextStart = earliest;  // 0 until the draw is published
+}
+
 static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
                      time_t completedStart,
                      ArduinoJson::Allocator* allocator) {
@@ -587,7 +637,6 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
     startIso = c["startDate"] | "";
     formatDateRange(startIso, c["endDate"] | "", lb.nextDates,
                     sizeof(lb.nextDates));
-    lb.nextStart = parseIsoDateTime(startIso);  // for the live countdown
     break;
   }
   if (!startIso || !*startIso) {
@@ -602,7 +651,13 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
             sizeof(lb.nextGolfers[i].name));
     toUpperInPlace(lb.nextGolfers[i].name);
     strlcpy(lb.nextGolfers[i].status, "TBD", sizeof(lb.nextGolfers[i].status));
+    lb.nextGolfers[i].tee[0] = 0;
   }
+
+  // Seed the countdown (and pinned tee times) from the header feed. Done before
+  // the no-pinned early return so the countdown works even with nothing pinned.
+  fillNextTeeTimes(lb, startIso, allocator);
+
   if (lb.nextGolferCount == 0) return;
 
   // Ask the scoreboard for the next event's start date — once entries are
