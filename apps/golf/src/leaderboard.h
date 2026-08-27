@@ -38,6 +38,8 @@ struct Leaderboard {
   // MODE_LIVE
   char eventName[40];   // tournament name, ASCII-folded + uppercased
   char roundLabel[6];   // "R1".."R4"
+  bool firstRound = false;  // showing R1: players yet to tee off carry only a tee
+                            // time (no score), so their rows drop rank + total
   GolferRow leaders[BOARD_ROWS];
   uint8_t leaderCount = 0;
   GolferRow pinned[MAX_PINNED_ROWS];

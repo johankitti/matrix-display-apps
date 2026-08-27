@@ -41,6 +41,7 @@ struct RowScene {
   RowSlot rows[BOARD_ROWS + MAX_PINNED_ROWS];  // leaders followed by pinned
   int rowCount;
   int dividerY;          // leader/pinned divider baseline, or -1 if no pinned block
+  bool firstRound;       // R1: rows yet to tee off show name + tee only (no rank/total)
 };
 
 // One element in a shuffle: a row (or the divider) sliding oldY -> newY.
@@ -106,8 +107,24 @@ static const ColLayout& columns() {
   return L;
 }
 
-static void drawRow(const GolferRow& row, int baseY) {
+static void drawRow(const GolferRow& row, int baseY, bool firstRound) {
   const ColLayout& L = columns();
+
+  // In round 1, a player who still has a tee time hasn't teed off, so their rank
+  // ("T1") and total ("E") are meaningless placeholders. Render just a start-list
+  // line: name flexing from the left margin, tee time (white) on the right. Rows
+  // that have started (tee cleared) fall through to the normal columns below, so
+  // an in-progress R1 board mixes real scores with these name+tee rows.
+  if (firstRound && row.tee[0]) {
+    drawTextRight(TOTAL_RIGHT, baseY, row.tee, C_WHITE);
+    int nameRight = (TOTAL_RIGHT - textWidth(row.tee) + 1) - COL_GAP;
+    int maxChars = (nameRight - PAD + 1) / 4;
+    char name[sizeof(row.name)];
+    strlcpy(name, row.name, sizeof(name));
+    if (maxChars >= 0 && maxChars < (int)strlen(name)) name[maxChars] = 0;
+    drawText(PAD, baseY, name, row.selected ? C_CYAN : C_WHITE);
+    return;
+  }
 
   // Out of the tournament (cut/withdrawn/DQ): orange badge in the rank column,
   // total still on the right, the per-round columns left blank. The name flexes
@@ -392,6 +409,7 @@ void displayNextTick(const Leaderboard& lb) {
 static void buildScene(const Leaderboard& lb, RowScene& out) {
   strlcpy(out.header, lb.eventName, sizeof(out.header));
   strlcpy(out.roundLabel, lb.roundLabel, sizeof(out.roundLabel));
+  out.firstRound = lb.firstRound;
   out.rowCount = 0;
   for (int i = 0; i < lb.leaderCount; i++) {
     out.rows[out.rowCount].row   = lb.leaders[i];
@@ -491,7 +509,7 @@ static void renderSceneFrame(const RowScene& scene, const AnimEntry* entries,
       if (y > HEADER_RULE_Y && y < PANEL_HEIGHT)
         dma_display->drawFastHLine(PAD, y, PANEL_WIDTH - 2 * PAD, C_DIM);
     } else {
-      drawRow(e.row, y);
+      drawRow(e.row, y, scene.firstRound);
     }
   }
 }

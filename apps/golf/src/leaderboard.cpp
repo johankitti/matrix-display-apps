@@ -530,6 +530,14 @@ static void fillLive(Leaderboard& lb, JsonObjectConst event,
   period = displayPeriod;
   snprintf(lb.roundLabel, sizeof(lb.roundLabel), "R%d", period);
 
+  // In round 1 a player who hasn't teed off has no score at all, so ESPN's
+  // placeholder rank ("T1") and total ("E") are noise -> flag the board as R1 so
+  // drawRow drops those two columns for any row that still carries a tee time
+  // (mixed board: started players show full stats, the rest show name + tee).
+  // Guarded to R1: from R2 on, a yet-to-tee player already has a real prior-round
+  // total that must keep showing (the between-rounds "pre" state is period+1).
+  lb.firstRound = period == 1;
+
   // Competitors arrive sorted by leaderboard order. The board holds BOARD_ROWS
   // golfers: the top of the leaderboard, plus any tracked golfers who sit
   // outside it pinned to the bottom rows (so a pick is always visible). A pick
