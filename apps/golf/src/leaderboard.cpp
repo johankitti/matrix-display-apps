@@ -522,8 +522,12 @@ static void fillLive(Leaderboard& lb, JsonObjectConst event,
   const char* rowState = compState;
   bool betweenRounds = strcmp(compState, "post") == 0 &&
                        strcmp(statusName, "STATUS_FINAL") != 0;
+  // Advance to the next round's tee times when its draw is known — either from
+  // the scoreboard (roundHasTeeTimes) or, before the scoreboard publishes them,
+  // from the header feed handed in as `teeSource` (see fetchLeaderboard).
   if (betweenRounds && period < 4 &&
-      roundHasTeeTimes(comp["competitors"].as<JsonArrayConst>(), period + 1)) {
+      (!teeSource.isNull() ||
+       roundHasTeeTimes(comp["competitors"].as<JsonArrayConst>(), period + 1))) {
     displayPeriod = period + 1;
     rowState = "pre";  // upcoming round: nobody's teed off -> tee times, not "F"
   }
@@ -839,7 +843,26 @@ bool fetchLeaderboard(Leaderboard& out) {
   // A live event still wins outright.
   Leaderboard lb;  // build into a temp so `out` stays intact on failure
   if (!liveEvent.isNull()) {
-    fillLive(lb, liveEvent);
+    // Between rounds the scoreboard withholds the next round's tee times until a
+    // few hours out, but the header feed carries them days ahead. When the
+    // current round is done (not Final) and the scoreboard has no tee times for
+    // the next round yet, pull the header feed's draw and hand it to fillLive so
+    // the board shows the upcoming round's start list instead of a flat "F".
+    // hdrDoc must outlive fillLive (it reads teeSource), so keep it in scope.
+    JsonDocument hdrDoc(&allocator);
+    JsonArrayConst teeSource;
+    JsonObjectConst liveComp = liveEvent["competitions"][0];
+    JsonObjectConst liveType = liveComp["status"]["type"];
+    int livePeriod = liveComp["status"]["period"] | 1;
+    bool liveBetween = strcmp(liveType["state"] | "", "post") == 0 &&
+                       strcmp(liveType["name"] | "", "STATUS_FINAL") != 0;
+    if (liveBetween && livePeriod >= 1 && livePeriod < 4 &&
+        !roundHasTeeTimes(liveComp["competitors"].as<JsonArrayConst>(),
+                          livePeriod + 1) &&
+        fetchHeaderEvent(hdrDoc, liveEvent["date"] | ""))
+      teeSource = hdrDoc["sports"][0]["leagues"][0]["events"][0]
+                      ["competitors"].as<JsonArrayConst>();
+    fillLive(lb, liveEvent, teeSource);
   } else if (!finalEvent.isNull() && now > 100000 &&
              now < eventEndFromCalendar(doc, finalEvent) + 86400) {
     // Just finished: hold the final standings up rather than flip to "next up".
