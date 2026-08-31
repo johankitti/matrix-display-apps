@@ -532,7 +532,14 @@ static void fillLive(Leaderboard& lb, JsonObjectConst event,
     rowState = "pre";  // upcoming round: nobody's teed off -> tee times, not "F"
   }
   period = displayPeriod;
-  snprintf(lb.roundLabel, sizeof(lb.roundLabel), "R%d", period);
+  // Tournament over: the whole event is Final (not just a round complete). Show
+  // "F" in the header slot instead of "R4" so the board reads as a settled
+  // result, not a round still to be played.
+  if (strcmp(statusName, "STATUS_FINAL") == 0) {
+    strlcpy(lb.roundLabel, "F", sizeof(lb.roundLabel));
+  } else {
+    snprintf(lb.roundLabel, sizeof(lb.roundLabel), "R%d", period);
+  }
 
   // In round 1 a player who hasn't teed off has no score at all, so ESPN's
   // placeholder rank ("T1") and total ("E") are noise -> flag the board as R1 so
