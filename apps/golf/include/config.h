@@ -15,16 +15,35 @@
 // Leaderboard behaviour
 // ---------------------------------------------------------------------------
 
-// ESPN's free (unofficial, no API key) PGA Tour scoreboard endpoint.
-#define ESPN_SCOREBOARD_URL \
-  "https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard"
+// Which tour to follow. First-boot default only; the live value is a runtime
+// setting on the web page (stored in NVS). Values are the Tour enum in
+// src/settings.h:
+//   0 = PGA Tour, 1 = DP World Tour (European Tour),
+//   2 = Auto: follow the tracked golfers — the board shows whichever tour the
+//       first tracked golfer is playing this week (falling through to the
+//       second, third... when the first isn't in either field), PGA if none.
+#define DEFAULT_TOUR 2
+
+// ESPN's free (unofficial, no API key) scoreboard endpoint. "%s" is the league
+// slug: "pga" (PGA Tour) or "eur" (DP World Tour) — same JSON shape for both.
+#define ESPN_SCOREBOARD_URL_FMT \
+  "https://site.api.espn.com/apis/site/v2/sports/golf/%s/scoreboard"
 
 // ESPN's keyless scoreboard "header" feed. Unlike the scoreboard above, it
 // carries per-player tee times (status.teeTime) for the upcoming event days
 // ahead — the scoreboard only publishes them close to the round. Used to seed
 // the NEXT screen's first-tee countdown and, within 24h, the pinned tee times.
-#define ESPN_HEADER_URL \
-  "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=golf&league=pga"
+// "%s" is the league slug, as above.
+#define ESPN_HEADER_URL_FMT \
+  "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=golf&league=%s"
+
+// BBC Sport's keyless golf leaderboard feed. ESPN's DP World Tour scoring is
+// stale during play (hours behind, no holes-played), so while a round is in
+// progress the EUR board's live rows come from here instead. "%s" is the BBC
+// tournament slug ("european-tour"; "uspga-tour" also exists). ~60 KB JSON.
+#define BBC_LEADERBOARD_URL_FMT \
+  "https://web-cdn.api.bbci.co.uk/wc-poll-data/container/golf-leaderboard" \
+  "?urn=urn%%3Abbc%%3Asportsdata%%3Agolf%%3Atournament%%3A%s"
 
 // How often to refresh, and how quickly to retry after a failed fetch.
 // When no tournament is live the board shows the upcoming event instead,

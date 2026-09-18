@@ -25,12 +25,65 @@ struct SpiRamAllocator : ArduinoJson::Allocator {
 };
 
 // ---------------------------------------------------------------------------
+// Tours. ESPN serves the PGA Tour and the DP World Tour from the same endpoints
+// with the same JSON shape; only the league slug in the URL differs. Every
+// fetch below goes through `g_tour`, set by fetchTour() for the duration of one
+// tour's fetch, so the parsing code never has to know which tour it's on.
+// ---------------------------------------------------------------------------
+
+struct TourInfo {
+  const char* slug;     // ESPN league slug in the URLs
+  const char* label;    // uppercase display name (fallback event name, web page)
+  const char* bbcSlug;  // BBC Sport tournament slug for live in-round scoring,
+                        // or nullptr to rely on ESPN alone (see fetchBbcBoard)
+};
+static const TourInfo TOURS[] = {
+    {"pga", "PGA TOUR", nullptr},          // TOUR_PGA: ESPN is live + complete
+    {"eur", "DP WORLD TOUR", "european-tour"},  // TOUR_EUR: ESPN lags -> BBC
+};
+static const TourInfo* g_tour = &TOURS[TOUR_PGA];
+
+const char* tourLabel(uint8_t tour) {
+  if (tour == TOUR_AUTO) return "AUTO";
+  return tour < TOUR_AUTO ? TOURS[tour].label : "?";
+}
+
+// ESPN scoreboard URL for the current tour, with an optional query string
+// (e.g. "?dates=20260917") appended.
+static void scoreboardUrl(char* buf, size_t n, const char* query = "") {
+  int len = snprintf(buf, n, ESPN_SCOREBOARD_URL_FMT, g_tour->slug);
+  if (len > 0 && (size_t)len < n) strlcpy(buf + len, query, n - len);
+}
+
+static void headerUrl(char* buf, size_t n) {
+  snprintf(buf, n, ESPN_HEADER_URL_FMT, g_tour->slug);
+}
+
+// ---------------------------------------------------------------------------
 // Text helpers: the LED font is ASCII-only, so "Ludvig Åberg" must become
 // "ABERG" before it can be drawn.
 // ---------------------------------------------------------------------------
 
-// Folds UTF-8 Latin-1 accents to plain ASCII (Å->A, é->e, ø->o, ß->s ...).
-// Characters outside that range (rare on the PGA Tour) are dropped.
+// Latin Extended-A (U+0100-U+017F: Š, Ł, Ř, Ő, Ć, Ž ...) -> base letter.
+// Common in DP World Tour fields (Czech, Polish, Hungarian, Croatian names).
+// Uppercase only: every consumer uppercases or case-folds the result anyway.
+static char foldLatinExtA(uint16_t cp) {
+  static const struct { uint16_t lo, hi; char c; } R[] = {
+      {0x100, 0x105, 'A'}, {0x106, 0x10D, 'C'}, {0x10E, 0x111, 'D'},
+      {0x112, 0x11B, 'E'}, {0x11C, 0x123, 'G'}, {0x124, 0x127, 'H'},
+      {0x128, 0x133, 'I'}, {0x134, 0x135, 'J'}, {0x136, 0x138, 'K'},
+      {0x139, 0x142, 'L'}, {0x143, 0x14B, 'N'}, {0x14C, 0x153, 'O'},
+      {0x154, 0x159, 'R'}, {0x15A, 0x161, 'S'}, {0x162, 0x167, 'T'},
+      {0x168, 0x173, 'U'}, {0x174, 0x175, 'W'}, {0x176, 0x178, 'Y'},
+      {0x179, 0x17E, 'Z'},
+  };
+  for (const auto& r : R)
+    if (cp >= r.lo && cp <= r.hi) return r.c;
+  return 0;
+}
+
+// Folds UTF-8 accents to plain ASCII (Å->A, é->e, ø->o, ß->s, Š->S ...):
+// Latin-1 Supplement plus Latin Extended-A. Anything else is dropped.
 static void asciiFold(const char* src, char* dst, size_t dstSize) {
   size_t o = 0;
   const uint8_t* s = (const uint8_t*)src;
@@ -39,6 +92,10 @@ static void asciiFold(const char* src, char* dst, size_t dstSize) {
     if (b < 0x80) {
       dst[o++] = (char)b;
       s++;
+    } else if ((b == 0xC4 || b == 0xC5) && s[1]) {
+      char r = foldLatinExtA((uint16_t)((b & 0x1F) << 6) | (s[1] & 0x3F));
+      if (r) dst[o++] = r;
+      s += 2;
     } else if (b == 0xC3 && s[1]) {
       uint8_t c = s[1];
       char r = 0;
@@ -84,15 +141,40 @@ static void surnameOf(const char* fullName, char* dst, size_t dstSize) {
   toUpperInPlace(dst);
 }
 
-// Case-insensitive substring match of one config pattern against the
-// folded full name, so "aberg" matches "Ludvig Åberg".
-static bool nameMatchesPattern(const char* fullName, const char* pattern) {
-  char folded[48], pat[32];
-  asciiFold(fullName, folded, sizeof(folded));
+// Matching key for a name: ASCII-folded, uppercased, and with the digraphs the
+// BBC feed uses for Nordic/German letters collapsed (OE->O, AE->A, AA->A,
+// UE->U). ESPN writes "Ludvig Åberg" / "Rasmus Højgaard"; BBC writes "Ludvig
+// Aaberg" / "Rasmus Hoejgaard"; both key to "LUDVIG ABERG" / "RASMUS HOJGARD",
+// as does a config pattern typed either way. Matching only — never displayed.
+static void nameKey(const char* name, char* dst, size_t dstSize) {
+  char folded[48];
+  asciiFold(name, folded, sizeof(folded));
   toUpperInPlace(folded);
-  strlcpy(pat, pattern, sizeof(pat));
-  toUpperInPlace(pat);
-  return strstr(folded, pat) != nullptr;
+  size_t o = 0;
+  for (const char* p = folded; *p && o < dstSize - 1;) {
+    bool digraph = (p[0] == 'O' && p[1] == 'E') || (p[0] == 'U' && p[1] == 'E') ||
+                   (p[0] == 'A' && (p[1] == 'E' || p[1] == 'A'));
+    dst[o++] = *p;
+    p += digraph ? 2 : 1;
+  }
+  dst[o] = 0;
+}
+
+// Substring match of one config pattern against a full name, both reduced to
+// nameKey form: "aberg" matches "Ludvig Åberg" and "Ludvig Aaberg" alike.
+static bool nameMatchesPattern(const char* fullName, const char* pattern) {
+  char key[48], pat[32];
+  nameKey(fullName, key, sizeof(key));
+  nameKey(pattern, pat, sizeof(pat));
+  return strstr(key, pat) != nullptr;
+}
+
+// Same player under either feed's spelling (see nameKey).
+static bool sameNameKey(const char* a, const char* b) {
+  char ka[48], kb[48];
+  nameKey(a, ka, sizeof(ka));
+  nameKey(b, kb, sizeof(kb));
+  return strcmp(ka, kb) == 0;
 }
 
 static bool matchesAnyPinned(const char* fullName) {
@@ -454,6 +536,9 @@ static void fillRow(GolferRow& row, JsonObjectConst c, const char* compState,
     const char* tv = ls["displayValue"];
     if (tv && *tv) strlcpy(row.today, tv, sizeof(row.today));
     int holes = ls["linescores"].as<JsonArrayConst>().size();
+    // The DP World Tour feed carries no per-hole array at all; fall back to
+    // the competitor's status.thru (populated while a round is in progress).
+    if (holes == 0) holes = c["status"]["thru"] | 0;
     if (strcmp(compState, "post") == 0 || holes >= 18) {
       strlcpy(row.thru, "F", sizeof(row.thru));
     } else if (holes > 0) {
@@ -502,7 +587,8 @@ static void fillLive(Leaderboard& lb, JsonObjectConst event,
                      JsonArrayConst teeSource = JsonArrayConst()) {
   lb.mode = MODE_LIVE;
 
-  const char* rawName = event["shortName"] | (const char*)(event["name"] | "PGA TOUR");
+  const char* rawName =
+      event["shortName"] | (const char*)(event["name"] | g_tour->label);
   asciiFold(rawName, lb.eventName, sizeof(lb.eventName));
   toUpperInPlace(lb.eventName);
 
@@ -561,10 +647,14 @@ static void fillLive(Leaderboard& lb, JsonObjectConst event,
   // a pick is "pinned" only if it ranks at index >= L.
   JsonArrayConst competitors = comp["competitors"].as<JsonArrayConst>();
 
-  // Parse the whole field's totals once, for tie-aware positions (see below).
-  static int scores[160];
+  // Parse the whole field's totals once, for tie-aware positions (see below),
+  // and note which tracked golfers are in this field (for TOUR_AUTO).
+  static int scores[168];  // >= the largest field either tour plays (156)
   int nScores = 0;
   for (JsonObjectConst c : competitors) {
+    const char* fullName = c["athlete"]["displayName"] | "";
+    for (uint8_t i = 0; i < settings.pinnedCount && i < MAX_PINNED_GOLFERS; i++)
+      if (nameMatchesPattern(fullName, settings.pinned[i])) lb.pickInField[i] = true;
     if (nScores >= (int)(sizeof(scores) / sizeof(scores[0]))) break;
     scores[nScores++] = scoreToPar(c["score"]);
   }
@@ -637,9 +727,11 @@ static bool fetchHeaderEvent(JsonDocument& doc, const char* matchDateIso) {
   fc["displayName"] = true;
   fc["status"]["teeTime"] = true;
 
+  char url[160];
+  headerUrl(url, sizeof(url));
   bool ok = false;
   for (int attempt = 0; attempt < 2 && !ok; attempt++)
-    ok = getJson(ESPN_HEADER_URL, doc, filter, nullptr);
+    ok = getJson(url, doc, filter, nullptr);
   if (!ok) return false;
 
   JsonObjectConst ev = doc["sports"][0]["leagues"][0]["events"][0];
@@ -692,7 +784,7 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
     if (completedStart != 0 && start != 0 && start <= completedStart) continue;
     time_t end = parseIsoDate(c["endDate"] | "");
     if (end == 0 || end + 86400 <= now) continue;
-    asciiFold(c["label"] | "PGA TOUR", lb.nextName, sizeof(lb.nextName));
+    asciiFold(c["label"] | g_tour->label, lb.nextName, sizeof(lb.nextName));
     toUpperInPlace(lb.nextName);
     startIso = c["startDate"] | "";
     formatDateRange(startIso, c["endDate"] | "", lb.nextDates,
@@ -724,8 +816,9 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
   // published its competitor list is the tournament field.
   int y, m, d;
   if (sscanf(startIso, "%d-%d-%d", &y, &m, &d) != 3) return;
-  char url[160];
-  snprintf(url, sizeof(url), "%s?dates=%04d%02d%02d", ESPN_SCOREBOARD_URL, y, m, d);
+  char query[24], url[160];
+  snprintf(query, sizeof(query), "?dates=%04d%02d%02d", y, m, d);
+  scoreboardUrl(url, sizeof(url), query);
 
   JsonDocument filter;
   JsonObject fEvent = filter["events"].add<JsonObject>();
@@ -740,17 +833,235 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
       fieldDoc["events"][0]["competitions"][0]["competitors"].as<JsonArrayConst>();
   if (field.size() == 0) return;  // field not published yet: stay TBD
 
-  for (uint8_t i = 0; i < lb.nextGolferCount; i++) {
-    strlcpy(lb.nextGolfers[i].status, "OUT", sizeof(lb.nextGolfers[i].status));
+  // Every tracked golfer is checked against the field (TOUR_AUTO needs all of
+  // them); only the first nextGolferCount get a row on the panel.
+  for (uint8_t i = 0; i < settings.pinnedCount && i < MAX_PINNED_GOLFERS; i++) {
+    bool shown = i < lb.nextGolferCount;
+    if (shown)
+      strlcpy(lb.nextGolfers[i].status, "OUT", sizeof(lb.nextGolfers[i].status));
     for (JsonObjectConst c : field) {
       const char* fullName = c["athlete"]["displayName"] | "";
       if (nameMatchesPattern(fullName, settings.pinned[i])) {
-        surnameOf(fullName, lb.nextGolfers[i].name, sizeof(lb.nextGolfers[i].name));
-        strlcpy(lb.nextGolfers[i].status, "IN", sizeof(lb.nextGolfers[i].status));
+        lb.pickInField[i] = true;
+        if (shown) {
+          surnameOf(fullName, lb.nextGolfers[i].name, sizeof(lb.nextGolfers[i].name));
+          strlcpy(lb.nextGolfers[i].status, "IN", sizeof(lb.nextGolfers[i].status));
+        }
         break;
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// BBC Sport live board (DP World Tour). ESPN's EUR scoreboard is hours behind
+// during play — no holes-played, no in-round scores, the previous round's
+// totals — so while a round is in progress the live rows come from BBC's
+// keyless leaderboard feed instead. ESPN still supplies everything else for the
+// tour: the calendar, the upcoming event's field, and tee sheets between rounds.
+//
+// Feed shape (leaderboard.participants[], in rank order):
+//   rank         "1", "2", "2" (ties repeat the number; "-" = no rank)
+//   name.fullName  BBC's transliteration: "Ludvig Aaberg", "Rasmus Hoejgaard"
+//   totalScore.value  "-5", "+2", "E", "-" (no score)
+//   thru.value   holes played "12"; "F"/"18" done; a UK-local tee time "13:20"
+//                for players yet to start; "WD" when withdrawn
+//   roundScores[].value  strokes for each COMPLETED round ("67")
+//   status       "Withdrawn" etc., present only for players out of the event
+// leaderboard.status is "MidEvent" while a round is being played and
+// "Intermission" between rounds; currentRound is the round in play/just done.
+// ---------------------------------------------------------------------------
+
+// Player names for the panel come from ESPN's spelling when the same player is
+// found in ESPN's field (so BBC's "Aaberg" shows as ABERG, matching the PGA
+// board), else from BBC's. Only called for the handful of rows drawn.
+static void bbcDisplayName(const char* bbcName, JsonArrayConst espnField,
+                           char* dst, size_t dstSize) {
+  for (JsonObjectConst c : espnField) {
+    const char* n = c["athlete"]["displayName"] | "";
+    if (sameNameKey(n, bbcName)) {
+      surnameOf(n, dst, dstSize);
+      return;
+    }
+  }
+  surnameOf(bbcName, dst, dstSize);
+}
+
+// Fills one row from a BBC participant. `rankCount[r]` is how many players
+// share rank r (for the "T" prefix). `ukOffset` is the feed's UTC offset in
+// seconds (its tee times are UK wall clock) and `now` the current UTC epoch,
+// for turning "13:20" into the board's local time.
+static void fillBbcRow(GolferRow& row, JsonObjectConst p, int round, int par,
+                       const uint8_t* rankCount, long ukOffset, time_t now,
+                       JsonArrayConst espnField) {
+  bbcDisplayName(p["name"]["fullName"] | "?", espnField, row.name, sizeof(row.name));
+
+  const char* total = p["totalScore"]["value"] | "-";
+  strlcpy(row.score, *total ? total : "-", sizeof(row.score));
+  strlcpy(row.today, "-", sizeof(row.today));
+  strlcpy(row.thru, "-", sizeof(row.thru));
+  row.tee[0] = 0;
+
+  // Out of the event: badge in the rank column, no per-round detail.
+  const char* status = p["status"] | "";
+  if (*status) {
+    row.out = true;
+    if (strncasecmp(status, "Disq", 4) == 0) strlcpy(row.pos, "DQ", sizeof(row.pos));
+    else if (strcasestr(status, "cut")) strlcpy(row.pos, "MC", sizeof(row.pos));
+    else strlcpy(row.pos, "WD", sizeof(row.pos));  // Withdrawn / Retired
+    return;
+  }
+
+  int rank = atoi(p["rank"] | "0");
+  if (rank <= 0) strlcpy(row.pos, "-", sizeof(row.pos));
+  else if (rankCount[rank] > 1) snprintf(row.pos, sizeof(row.pos), "T%d", rank);
+  else snprintf(row.pos, sizeof(row.pos), "%d", rank);
+
+  // Holes played, finished, or a tee time still to come.
+  const char* thru = p["thru"]["value"] | "";
+  int hh, mm;
+  bool isTee = strchr(thru, ':') != nullptr;  // "13:20" (test first: atoi("18:00") == 18)
+  if (!isTee && (strcmp(thru, "F") == 0 || atoi(thru) >= 18)) {
+    strlcpy(row.thru, "F", sizeof(row.thru));
+  } else if (!isTee && atoi(thru) > 0) {
+    strlcpy(row.thru, thru, sizeof(row.thru));
+  } else if (isTee && sscanf(thru, "%d:%d", &hh, &mm) == 2 && now > 100000) {
+    // UK wall clock today -> UTC -> board-local. Today's date is taken from the
+    // current UK time so the conversion is right on either side of midnight.
+    time_t ukNow = now + ukOffset;
+    struct tm uk;
+    gmtime_r(&ukNow, &uk);
+    time_t tee = utcEpoch(uk.tm_year + 1900, uk.tm_mon + 1, uk.tm_mday, hh, mm, 0) -
+                 ukOffset;
+    epochToLocalHM(tee, row.tee, sizeof(row.tee));
+    return;  // yet to start today: no round score
+  }
+
+  // Today's score to par isn't in the feed: total minus the completed prior
+  // rounds (roundScores holds completed rounds only). Once today's round is in
+  // roundScores too, read it straight.
+  int totalPar = scoreStrToPar(row.score);
+  if (totalPar == SCORE_NONE) return;
+  JsonArrayConst rounds = p["roundScores"].as<JsonArrayConst>();
+  int today, prior = 0, i = 0;
+  for (JsonObjectConst r : rounds) {
+    if (i >= round - 1) break;
+    prior += atoi(r["value"] | "0") - par;
+    i++;
+  }
+  if ((int)rounds.size() >= round) today = atoi(rounds[round - 1]["value"] | "0") - par;
+  else today = totalPar - prior;
+  if (today == 0) strlcpy(row.today, "E", sizeof(row.today));
+  else snprintf(row.today, sizeof(row.today), "%+d", today);
+}
+
+// Builds a MODE_LIVE board from BBC's feed. Returns false — leaving `lb`
+// untouched — when the fetch fails or BBC isn't the better source right now:
+// it's used while a round is in progress ("MidEvent"), or at "Intermission"
+// when ESPN still hasn't caught up to the round BBC says is complete
+// (`espnPeriod` < currentRound). Otherwise ESPN's pipeline (tee sheets between
+// rounds, the Final board, the countdown) is the richer view.
+static bool fetchBbcBoard(Leaderboard& lb, JsonArrayConst espnField, int espnPeriod,
+                          ArduinoJson::Allocator* allocator) {
+  if (!g_tour->bbcSlug) return false;
+
+  JsonDocument filter;
+  JsonObject fl = filter["leaderboard"].to<JsonObject>();
+  fl["displayName"] = true;
+  fl["status"] = true;
+  fl["currentRound"] = true;
+  fl["par"] = true;
+  fl["startDateTime"] = true;
+  JsonObject fp = fl["participants"].add<JsonObject>();
+  fp["rank"] = true;
+  fp["status"] = true;
+  fp["name"]["fullName"] = true;
+  fp["totalScore"]["value"] = true;
+  fp["thru"]["value"] = true;
+  fp["roundScores"].add<JsonObject>()["value"] = true;
+
+  char url[200];
+  snprintf(url, sizeof(url), BBC_LEADERBOARD_URL_FMT, g_tour->bbcSlug);
+  JsonDocument doc(allocator);
+  time_t now = 0;
+  if (!getJson(url, doc, filter, &now)) return false;
+
+  JsonObjectConst board = doc["leaderboard"];
+  const char* status = board["status"] | "";
+  int round = board["currentRound"] | 0;
+  JsonArrayConst players = board["participants"].as<JsonArrayConst>();
+  bool inPlay = strcmp(status, "MidEvent") == 0;
+  bool espnBehind = strcmp(status, "Intermission") == 0 && espnPeriod < round;
+  Serial.printf("[bbc] %s round %d, %u players (espn period %d)\n", status, round,
+                (unsigned)players.size(), espnPeriod);
+  if (round < 1 || round > 4 || players.size() == 0 || !(inPlay || espnBehind))
+    return false;
+
+  lb.mode = MODE_LIVE;
+  asciiFold(board["displayName"] | g_tour->label, lb.eventName, sizeof(lb.eventName));
+  toUpperInPlace(lb.eventName);
+  snprintf(lb.roundLabel, sizeof(lb.roundLabel), "R%d", round);
+  lb.firstRound = round == 1;
+  int par = atoi(board["par"] | "72");
+
+  // "2026-09-17T07:10:00.000+01:00": the trailing offset is the feed's clock
+  // (UK time, whatever the event's own zone), which its tee times are in.
+  long ukOffset = 0;
+  const char* sdt = board["startDateTime"] | "";
+  const char* tz = strlen(sdt) >= 6 ? sdt + strlen(sdt) - 6 : "";
+  int oh, om;
+  if ((tz[0] == '+' || tz[0] == '-') && sscanf(tz + 1, "%d:%d", &oh, &om) == 2)
+    ukOffset = (tz[0] == '-' ? -1 : 1) * (oh * 3600L + om * 60L);
+
+  // Pass 1: who's a pick, who shares a rank, and which picks are in the field.
+  static bool isPick[168];
+  static uint8_t rankCount[170];
+  memset(rankCount, 0, sizeof(rankCount));
+  int n = 0;
+  for (JsonObjectConst p : players) {
+    if (n >= (int)(sizeof(isPick) / sizeof(isPick[0]))) break;
+    const char* fullName = p["name"]["fullName"] | "";
+    isPick[n] = false;
+    for (uint8_t i = 0; i < settings.pinnedCount && i < MAX_PINNED_GOLFERS; i++) {
+      if (nameMatchesPattern(fullName, settings.pinned[i])) {
+        isPick[n] = true;
+        lb.pickInField[i] = true;
+      }
+    }
+    int rank = atoi(p["rank"] | "0");
+    if (rank > 0 && rank < (int)sizeof(rankCount)) rankCount[rank]++;
+    n++;
+  }
+
+  // Leader block vs pinned rows: same fixed point as fillLive — with L leaders,
+  // a pick is pinned below only if it sits at index >= L.
+  uint8_t leaderSlots = BOARD_ROWS, pinnedSlots = 0;
+  for (uint8_t iter = 0; iter <= MAX_PINNED_ROWS; iter++) {
+    uint8_t deep = 0;
+    for (int i = leaderSlots; i < n; i++)
+      if (isPick[i] && deep < MAX_PINNED_ROWS) deep++;
+    if (deep == pinnedSlots) break;
+    pinnedSlots = deep;
+    leaderSlots = BOARD_ROWS - deep;
+  }
+
+  // Pass 2: fill the rows that will be drawn.
+  int idx = 0;
+  for (JsonObjectConst p : players) {
+    if (idx >= n) break;
+    if (lb.leaderCount < leaderSlots) {
+      GolferRow& r = lb.leaders[lb.leaderCount++];
+      fillBbcRow(r, p, round, par, rankCount, ukOffset, now, espnField);
+      r.selected = isPick[idx];
+    } else if (isPick[idx] && lb.pinnedCount < pinnedSlots) {
+      GolferRow& r = lb.pinned[lb.pinnedCount++];
+      fillBbcRow(r, p, round, par, rankCount, ukOffset, now, espnField);
+      r.selected = true;
+    }
+    idx++;
+    if (lb.leaderCount >= leaderSlots && lb.pinnedCount >= pinnedSlots) break;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -771,7 +1082,13 @@ static time_t eventEndFromCalendar(const JsonDocument& doc, JsonObjectConst ev) 
   return 0;
 }
 
-bool fetchLeaderboard(Leaderboard& out) {
+// Fetches one tour's scoreboard and builds its board into `out`. This is the
+// whole per-tour pipeline; fetchLeaderboard (below) runs it once, or once per
+// tour in TOUR_AUTO.
+static bool fetchTour(Tour tour, Leaderboard& out) {
+  g_tour = &TOURS[tour];
+  Serial.printf("[espn] %s: fetching scoreboard\n", g_tour->slug);
+
   // Filter: of the ~1.3 MB response, keep only these fields (~50 KB).
   JsonDocument filter;
   JsonObject fEvent = filter["events"].add<JsonObject>();
@@ -810,7 +1127,26 @@ bool fetchLeaderboard(Leaderboard& out) {
   SpiRamAllocator allocator;
   JsonDocument doc(&allocator);
   time_t now = 0;
-  if (!getJson(ESPN_SCOREBOARD_URL, doc, filter, &now)) return false;
+  char url[160];
+  scoreboardUrl(url, sizeof(url));
+  // One retry: the ~0.3-1 MB body occasionally arrives truncated (TLS drop ->
+  // "IncompleteInput"), and in TOUR_AUTO a failed tour is silently skipped.
+  bool ok = false;
+  for (int attempt = 0; attempt < 2 && !ok; attempt++)
+    ok = getJson(url, doc, filter, &now);
+  if (!ok) {
+    // ESPN down but this tour has BBC live scoring: a round in progress can
+    // still be shown from BBC alone (no ESPN field -> BBC's own name spellings).
+    if (g_tour->bbcSlug) {
+      Leaderboard bbc;
+      bbc.tour = tour;
+      if (fetchBbcBoard(bbc, JsonArrayConst(), 0, &allocator)) {
+        out = bbc;
+        return true;
+      }
+    }
+    return false;
+  }
 
   // A tournament that's underway wins; otherwise show what's next. ESPN models
   // a whole tournament as one event, so "underway" is broader than a round
@@ -848,7 +1184,27 @@ bool fetchLeaderboard(Leaderboard& out) {
   //   * within 24h AFTER the trophy's lifted -> keep the final leaderboard;
   //   * within 24h BEFORE the first tee      -> show the field (par + tee times).
   // A live event still wins outright.
+  // Tours whose ESPN scoring lags during play (DP World Tour) take their live
+  // rows from BBC while a round is on. ESPN's field for the same event lends
+  // its name spellings; the ESPN round number tells BBC when ESPN is behind.
+  if (g_tour->bbcSlug) {
+    JsonObjectConst xrefEvent = !liveEvent.isNull()    ? liveEvent
+                                : !preEvent.isNull()   ? preEvent
+                                : finalEvent;
+    JsonArrayConst espnField =
+        xrefEvent["competitions"][0]["competitors"].as<JsonArrayConst>();
+    int espnPeriod =
+        liveEvent.isNull() ? 0 : (int)(liveEvent["competitions"][0]["status"]["period"] | 0);
+    Leaderboard bbc;
+    bbc.tour = tour;
+    if (fetchBbcBoard(bbc, espnField, espnPeriod, &allocator)) {
+      out = bbc;
+      return true;
+    }
+  }
+
   Leaderboard lb;  // build into a temp so `out` stays intact on failure
+  lb.tour = tour;
   if (!liveEvent.isNull()) {
     // Between rounds the scoreboard withholds the next round's tee times until a
     // few hours out, but the header feed carries them days ahead. When the
@@ -890,12 +1246,52 @@ bool fetchLeaderboard(Leaderboard& out) {
         teeSource = hdrDoc["sports"][0]["leagues"][0]["events"][0]
                         ["competitors"].as<JsonArrayConst>();
       Leaderboard live;
+      live.tour = tour;
       fillLive(live, preEvent, teeSource);
       if (live.leaderCount > 0) lb = live;  // only if the field is populated
     }
   }
 
   out = lb;
+  return true;
+}
+
+// TOUR_AUTO: which of the two boards to show. Walk the tracked golfers in
+// order; the first one found in exactly one tour's field decides. A golfer in
+// both fields (one tour's event just finished, the other's is next) goes to
+// whichever board is live, else PGA. No tracked golfer in either field (fields
+// not yet published, or nobody playing this week) -> PGA.
+static Tour chooseTour(const Leaderboard& pga, const Leaderboard& eur) {
+  for (uint8_t i = 0; i < settings.pinnedCount && i < MAX_PINNED_GOLFERS; i++) {
+    bool inP = pga.pickInField[i], inE = eur.pickInField[i];
+    if (inP && !inE) return TOUR_PGA;
+    if (inE && !inP) return TOUR_EUR;
+    if (inP && inE)
+      return (eur.mode == MODE_LIVE && pga.mode != MODE_LIVE) ? TOUR_EUR : TOUR_PGA;
+  }
+  return TOUR_PGA;
+}
+
+bool fetchLeaderboard(Leaderboard& out) {
+  if (settings.tour != TOUR_AUTO)
+    return fetchTour(settings.tour == TOUR_EUR ? TOUR_EUR : TOUR_PGA, out);
+
+  // Auto: the two tours' boards are built independently, then one is picked
+  // by where the tracked golfers are playing. One tour failing to fetch isn't
+  // fatal — show the other; both failing is.
+  Leaderboard pga, eur;
+  bool okPga = fetchTour(TOUR_PGA, pga);
+  bool okEur = fetchTour(TOUR_EUR, eur);
+  if (!okPga && !okEur) return false;
+  if (okPga != okEur) {
+    out = okPga ? pga : eur;
+    Serial.printf("[espn] auto: %s fetch failed, showing %s\n",
+                  okPga ? "eur" : "pga", TOURS[out.tour].slug);
+    return true;
+  }
+  Tour pick = chooseTour(pga, eur);
+  out = pick == TOUR_EUR ? eur : pga;
+  Serial.printf("[espn] auto: showing %s\n", TOURS[pick].slug);
   return true;
 }
 
