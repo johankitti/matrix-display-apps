@@ -713,8 +713,12 @@ static void fillLive(Leaderboard& lb, JsonObjectConst event,
 // "YYYY-MM-DD..." string) — so tee times never come from the wrong tournament.
 // One retry: this host's TLS handshake fails intermittently, as the scoreboard
 // host's does. Returns true with `doc` holding the header event; false (and
-// `doc` unusable) on any network error or date mismatch. `doc` must have been
-// constructed with the caller's allocator, since its parsed body outlives this.
+// `doc` unusable) on any network error, date mismatch, or a stale draw: the
+// header feed has been seen relabelling the just-played round's tee times as
+// the next round's, so a draw whose latest tee time is already behind the
+// server clock is rejected (every caller wants times still to come). `doc` must
+// have been constructed with the caller's allocator, since its parsed body
+// outlives this.
 static bool fetchHeaderEvent(JsonDocument& doc, const char* matchDateIso) {
   int wy, wm, wd;
   if (sscanf(matchDateIso, "%d-%d-%d", &wy, &wm, &wd) != 3) return false;
@@ -730,14 +734,26 @@ static bool fetchHeaderEvent(JsonDocument& doc, const char* matchDateIso) {
   char url[160];
   headerUrl(url, sizeof(url));
   bool ok = false;
+  time_t now = 0;
   for (int attempt = 0; attempt < 2 && !ok; attempt++)
-    ok = getJson(url, doc, filter, nullptr);
+    ok = getJson(url, doc, filter, &now);
   if (!ok) return false;
 
   JsonObjectConst ev = doc["sports"][0]["leagues"][0]["events"][0];
   int ey, em, ed;
   if (sscanf(ev["date"] | "", "%d-%d-%d", &ey, &em, &ed) != 3) return false;
-  return ey == wy && em == wm && ed == wd;  // false if header shows another event
+  if (!(ey == wy && em == wm && ed == wd)) return false;  // another event
+
+  time_t latest = 0;
+  for (JsonObjectConst c : ev["competitors"].as<JsonArrayConst>()) {
+    time_t tee = parseIsoDateTime(c["status"]["teeTime"] | "");
+    if (tee > latest) latest = tee;
+  }
+  if (latest > 0 && now > 100000 && latest < now - 3600) {
+    Serial.println("[espn] header draw is stale (all tee times past), ignoring");
+    return false;
+  }
+  return true;
 }
 
 static void fillNextTeeTimes(Leaderboard& lb, const char* startIso,
@@ -956,11 +972,14 @@ static void fillBbcRow(GolferRow& row, JsonObjectConst p, int round, int par,
 }
 
 // Builds a MODE_LIVE board from BBC's feed. Returns false — leaving `lb`
-// untouched — when the fetch fails or BBC isn't the better source right now:
-// it's used while a round is in progress ("MidEvent"), or at "Intermission"
-// when ESPN still hasn't caught up to the round BBC says is complete
-// (`espnPeriod` < currentRound). Otherwise ESPN's pipeline (tee sheets between
-// rounds, the Final board, the countdown) is the richer view.
+// untouched — when the fetch fails or BBC isn't the better source right now.
+// It's used while a round is in progress ("MidEvent"), and at "Intermission"
+// once the next round's draw is in the feed (every player's `thru` becomes
+// "Round N tee time HH:MM" — ESPN's header feed only lists ~25 players and has
+// been seen serving the previous round's times relabelled) or when ESPN still
+// hasn't caught up to the round BBC says is complete (`espnPeriod` <
+// currentRound). Otherwise ESPN's pipeline (the Final board, the countdown) is
+// the richer view.
 static bool fetchBbcBoard(Leaderboard& lb, JsonArrayConst espnField, int espnPeriod,
                           ArduinoJson::Allocator* allocator) {
   if (!g_tour->bbcSlug) return false;
@@ -978,6 +997,7 @@ static bool fetchBbcBoard(Leaderboard& lb, JsonArrayConst espnField, int espnPer
   fp["name"]["fullName"] = true;
   fp["totalScore"]["value"] = true;
   fp["thru"]["value"] = true;
+  fp["thru"]["accessible"] = true;  // "Round 4 tee time 12:05" names the round
   fp["roundScores"].add<JsonObject>()["value"] = true;
 
   char url[200];
@@ -991,11 +1011,27 @@ static bool fetchBbcBoard(Leaderboard& lb, JsonArrayConst espnField, int espnPer
   int round = board["currentRound"] | 0;
   JsonArrayConst players = board["participants"].as<JsonArrayConst>();
   bool inPlay = strcmp(status, "MidEvent") == 0;
-  bool espnBehind = strcmp(status, "Intermission") == 0 && espnPeriod < round;
-  Serial.printf("[bbc] %s round %d, %u players (espn period %d)\n", status, round,
-                (unsigned)players.size(), espnPeriod);
-  if (round < 1 || round > 4 || players.size() == 0 || !(inPlay || espnBehind))
+  bool between = strcmp(status, "Intermission") == 0;
+  // Between rounds: once the draw is out, every active player's thru reads
+  // "Round N tee time HH:MM" — that N is the round the board should show.
+  int teeRound = 0;
+  if (between) {
+    for (JsonObjectConst p : players) {
+      int r;
+      if (sscanf(p["thru"]["accessible"] | "", "Round %d tee time", &r) == 1 &&
+          r > round) {
+        teeRound = r;
+        break;
+      }
+    }
+  }
+  bool espnBehind = between && espnPeriod < round;
+  Serial.printf("[bbc] %s round %d, %u players (espn period %d, next draw R%d)\n",
+                status, round, (unsigned)players.size(), espnPeriod, teeRound);
+  if (round < 1 || round > 4 || players.size() == 0 ||
+      !(inPlay || espnBehind || teeRound))
     return false;
+  if (teeRound) round = teeRound;  // rows carry the upcoming round's tee times
 
   lb.mode = MODE_LIVE;
   asciiFold(board["displayName"] | g_tour->label, lb.eventName, sizeof(lb.eventName));
