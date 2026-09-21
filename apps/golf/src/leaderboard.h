@@ -57,6 +57,10 @@ struct Leaderboard {
   char nextName[40];    // upcoming tournament name
   char nextDates[16];   // "AUG 13-16", "AUG 30-SEP 2"
   time_t nextStart = 0; // first-tee UTC epoch, for the live countdown (0 if unknown)
+  time_t nextStartDay = 0;  // the event's calendar start date as a UTC epoch, known
+                            // as soon as the event is picked (unlike nextStart,
+                            // which waits for the draw). Lets TOUR_AUTO compare how
+                            // far off each tour's next event is — see chooseTour.
   NextGolfer nextGolfers[MAX_PINNED_ROWS];
   uint8_t nextGolferCount = 0;
 };

@@ -174,10 +174,16 @@ From there you can, without reflashing:
 - **Tour** — *PGA Tour*, *DP World Tour* (European Tour), or *Auto*. Auto follows
   your tracked golfers: the board shows whichever tour the first tracked golfer is
   playing this week; if they're in neither field it looks at the second, then the
-  third, and falls back to the PGA Tour when none of them is entered anywhere.
-  (A golfer in both tours' current events — one just finished, one about to start —
-  goes to whichever is live.) Auto fetches both tours on every refresh, so a live
-  update takes roughly twice as long.
+  third. When none of them is entered anywhere (fields are only published on the
+  Monday or Tuesday of tournament week, so this is the norm in between) a live
+  tournament wins, otherwise whichever tour's next event starts sooner, otherwise
+  the PGA Tour. (A golfer in both tours' current events — one just finished, one
+  about to start — goes to whichever is live.) Auto fetches both tours on every
+  refresh, so a live update takes roughly twice as long.
+- The *next tournament* screen counts down to an event your tracked golfers can
+  play: once a field is published, an event none of them entered is passed over
+  for the one after it, and team events (Presidents Cup, Ryder Cup, the Zurich
+  Classic pairs) are never shown.
 - **Night mode** — toggle it and set the from/to hours (see below).
 - **Tracked golfers** — up to 3 surnames to pin below the leaders.
 - **Refresh now** — force an immediate re-fetch instead of waiting for the timer.
