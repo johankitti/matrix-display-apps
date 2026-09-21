@@ -21,7 +21,11 @@
 //   0 = PGA Tour, 1 = DP World Tour (European Tour),
 //   2 = Auto: follow the tracked golfers — the board shows whichever tour the
 //       first tracked golfer is playing this week (falling through to the
-//       second, third... when the first isn't in either field), PGA if none.
+//       second, third... when the first isn't in either field). When neither
+//       tour's field names a tracked golfer — the usual case between
+//       tournaments, since fields aren't published until Mon/Tue of
+//       tournament week — a live tournament wins, else the tour whose next
+//       event starts sooner, else PGA.
 #define DEFAULT_TOUR 2
 
 // ESPN's free (unofficial, no API key) scoreboard endpoint. "%s" is the league
@@ -68,6 +72,10 @@
 // Matched case-insensitively against the player's full name, with accents
 // folded to ASCII — so "aberg" matches "Ludvig Åberg".
 // A pinned golfer already among the leaders is not shown twice.
+//
+// These also steer the "next tournament" screen: once a field is published,
+// an upcoming event that none of them entered is passed over for the one
+// after it, so the board counts down to a tournament they're actually in.
 static const char* const PINNED_GOLFERS[] = {
     "Aberg",
     "Noren",   // matches "Alex Norén" (accents folded: é -> e)

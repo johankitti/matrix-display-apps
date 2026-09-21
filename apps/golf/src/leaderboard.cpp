@@ -776,6 +776,58 @@ static void fillNextTeeTimes(Leaderboard& lb, const char* startIso,
   lb.nextStart = earliest;  // 0 until the draw is published
 }
 
+// Team competitions — the Presidents Cup and Ryder Cup (two sides, match
+// play), or the Zurich Classic's two-man pairs — are listed by ESPN in the same
+// league calendars and scoreboards as regular tournaments, but their
+// competitors are "team" entries rather than athletes. The board draws
+// individual stroke play only, so these events are skipped wherever an event
+// is chosen: they never go live, never hold a final board, and the NEXT screen
+// looks past them to the following calendar entry.
+static bool isTeamField(JsonArrayConst competitors) {
+  return competitors.size() > 0 &&
+         strcmp(competitors[0]["type"] | "", "team") == 0;
+}
+
+static bool isTeamEvent(JsonObjectConst ev) {
+  return isTeamField(ev["competitions"][0]["competitors"].as<JsonArrayConst>());
+}
+
+// The scoreboard for one calendar entry's start date. Its competitor list is
+// the tournament field once entries are published (empty until then), and its
+// competitor type tells a team event from a stroke-play one. Returns false on
+// HTTP/parse failure.
+static bool fetchEventField(const char* startIso, JsonDocument& doc) {
+  int y, m, d;
+  if (sscanf(startIso, "%d-%d-%d", &y, &m, &d) != 3) return false;
+  char query[24], url[160];
+  snprintf(query, sizeof(query), "?dates=%04d%02d%02d", y, m, d);
+  scoreboardUrl(url, sizeof(url), query);
+
+  JsonDocument filter;
+  JsonObject fc = filter["events"].add<JsonObject>()["competitions"]
+                      .add<JsonObject>()["competitors"].add<JsonObject>();
+  fc["type"] = true;
+  fc["athlete"]["displayName"] = true;
+  return getJson(url, doc, filter, nullptr);
+}
+
+static JsonArrayConst eventField(const JsonDocument& doc) {
+  return doc["events"][0]["competitions"][0]["competitors"].as<JsonArrayConst>();
+}
+
+// Is any tracked golfer entered in this (published, non-empty) field?
+static bool fieldHasPick(JsonArrayConst field) {
+  for (JsonObjectConst c : field)
+    if (matchesAnyPinned(c["athlete"]["displayName"] | "")) return true;
+  return false;
+}
+
+// How many calendar entries the NEXT-screen walk will look at before settling.
+// Each one costs a scoreboard request, so the walk is capped — but in practice
+// it stops after one or two on its own: an event more than about five days out
+// has no published field yet, which reads as "can't tell" and ends the walk.
+#define NEXT_LOOKAHEAD 3
+
 static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
                      time_t completedStart,
                      ArduinoJson::Allocator* allocator) {
@@ -794,23 +846,84 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
   // day or two after the trophy is lifted. We instead trust ESPN's own state
   // and skip the just-finished event (and anything before it) outright. The
   // endDate test stays as a fallback for when the feed has no completed event.
+  //
+  // Each candidate's own scoreboard is fetched, which answers two questions at
+  // once, and the accepted event's document is kept because its competitor
+  // list is the field the pinned golfers are checked against below:
+  //
+  //   1. Is it a team event (see isTeamField)? Those are never shown.
+  //   2. Is any tracked golfer in the field? This is a pinned-golfer board, so
+  //      an event none of them entered is not the event to count down to —
+  //      Åberg and Norén aren't eligible for the Presidents Cup, and the board
+  //      should look past it to the next tournament they can actually play.
+  //
+  // Test 2 only bites once the field is published (Mon/Tue of tournament
+  // week); before that the competitor list is empty, which means "can't tell"
+  // and ends the walk on that event, exactly as it used to. A failed fetch is
+  // the same "can't tell". Between them, and NEXT_LOOKAHEAD, the walk stays
+  // within an extra request or two per refresh.
+  JsonDocument fieldDoc(allocator);
+  bool haveField = false;   // fieldDoc holds the chosen event's published field
+  bool allOut = false;      // chose an event we know excludes every pick
   const char* startIso = nullptr;
+  const char* endIso = nullptr;
+  const char* label = nullptr;
+  // If every event we can see excludes the picks, the board falls back to the
+  // nearest one rather than running off the end of the calendar. These point
+  // into `doc`, which outlives this function.
+  const char* nearStart = nullptr;
+  const char* nearEnd = nullptr;
+  const char* nearLabel = nullptr;
+
+  uint8_t looked = 0;
   for (JsonObjectConst c : doc["leagues"][0]["calendar"].as<JsonArrayConst>()) {
     time_t start = parseIsoDate(c["startDate"] | "");
     if (completedStart != 0 && start != 0 && start <= completedStart) continue;
     time_t end = parseIsoDate(c["endDate"] | "");
     if (end == 0 || end + 86400 <= now) continue;
-    asciiFold(c["label"] | g_tour->label, lb.nextName, sizeof(lb.nextName));
-    toUpperInPlace(lb.nextName);
-    startIso = c["startDate"] | "";
-    formatDateRange(startIso, c["endDate"] | "", lb.nextDates,
-                    sizeof(lb.nextDates));
+    if (looked++ >= NEXT_LOOKAHEAD) break;
+
+    const char* iso = c["startDate"] | "";
+    haveField = fetchEventField(iso, fieldDoc);
+    if (haveField && isTeamField(eventField(fieldDoc))) {
+      Serial.printf("[espn] next: skipping team event \"%s\"\n",
+                    c["label"] | "");
+      continue;
+    }
+    if (!nearStart) {  // first real tournament ahead, kept as the fallback
+      nearStart = iso;
+      nearEnd = c["endDate"] | "";
+      nearLabel = c["label"] | g_tour->label;
+    }
+    if (haveField && settings.pinnedCount > 0 && eventField(fieldDoc).size() > 0 &&
+        !fieldHasPick(eventField(fieldDoc))) {
+      Serial.printf("[espn] next: skipping \"%s\" (no tracked golfer entered)\n",
+                    c["label"] | "");
+      continue;
+    }
+    label = c["label"] | g_tour->label;
+    startIso = iso;
+    endIso = c["endDate"] | "";
     break;
+  }
+  if (!startIso && nearStart) {
+    // Nothing within reach has a pick in it: show the nearest tournament, with
+    // the picks marked OUT (their absence is what sent the walk past it).
+    Serial.println("[espn] next: no tracked golfer entered in any upcoming field");
+    label = nearLabel;
+    startIso = nearStart;
+    endIso = nearEnd;
+    haveField = false;
+    allOut = true;
   }
   if (!startIso || !*startIso) {
     lb.mode = MODE_NONE;  // calendar exhausted: season is over
     return;
   }
+  asciiFold(label, lb.nextName, sizeof(lb.nextName));
+  toUpperInPlace(lb.nextName);
+  formatDateRange(startIso, endIso, lb.nextDates, sizeof(lb.nextDates));
+  lb.nextStartDay = parseIsoDate(startIso);
 
   // Pinned golfers start as TBD, named after their config pattern.
   lb.nextGolferCount = min((size_t)MAX_PINNED_ROWS, (size_t)settings.pinnedCount);
@@ -818,7 +931,8 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
     strlcpy(lb.nextGolfers[i].name, settings.pinned[i],
             sizeof(lb.nextGolfers[i].name));
     toUpperInPlace(lb.nextGolfers[i].name);
-    strlcpy(lb.nextGolfers[i].status, "TBD", sizeof(lb.nextGolfers[i].status));
+    strlcpy(lb.nextGolfers[i].status, allOut ? "OUT" : "TBD",
+            sizeof(lb.nextGolfers[i].status));
     lb.nextGolfers[i].tee[0] = 0;
   }
 
@@ -827,26 +941,9 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
   fillNextTeeTimes(lb, startIso, allocator);
 
   if (lb.nextGolferCount == 0) return;
+  if (!haveField) return;  // event scoreboard unavailable (or all OUT): done
 
-  // Ask the scoreboard for the next event's start date — once entries are
-  // published its competitor list is the tournament field.
-  int y, m, d;
-  if (sscanf(startIso, "%d-%d-%d", &y, &m, &d) != 3) return;
-  char query[24], url[160];
-  snprintf(query, sizeof(query), "?dates=%04d%02d%02d", y, m, d);
-  scoreboardUrl(url, sizeof(url), query);
-
-  JsonDocument filter;
-  JsonObject fEvent = filter["events"].add<JsonObject>();
-  JsonObject fc = fEvent["competitions"].add<JsonObject>()["competitors"]
-                      .add<JsonObject>();
-  fc["athlete"]["displayName"] = true;
-
-  JsonDocument fieldDoc(allocator);
-  if (!getJson(url, fieldDoc, filter, nullptr)) return;  // stay TBD
-
-  JsonArrayConst field =
-      fieldDoc["events"][0]["competitions"][0]["competitors"].as<JsonArrayConst>();
+  JsonArrayConst field = eventField(fieldDoc);
   if (field.size() == 0) return;  // field not published yet: stay TBD
 
   // Every tracked golfer is checked against the field (TOUR_AUTO needs all of
@@ -1136,6 +1233,7 @@ static bool fetchTour(Tour tour, Leaderboard& out) {
   fComp["status"]["type"]["state"] = true;
   fComp["status"]["type"]["name"] = true;  // STATUS_FINAL vs STATUS_PLAY_COMPLETE
   JsonObject fc = fComp["competitors"].add<JsonObject>();
+  fc["type"] = true;  // "athlete", or "team" for Presidents/Ryder Cup-style events
   fc["order"] = true;
   fc["score"] = true;
   fc["athlete"]["displayName"] = true;
@@ -1200,6 +1298,16 @@ static bool fetchTour(Tour tour, Leaderboard& out) {
     JsonObjectConst type = ev["competitions"][0]["status"]["type"];
     const char* st = type["state"] | "";
     bool isFinal = strcmp(type["name"] | "", "STATUS_FINAL") == 0;
+    // Team events never drive the board (see isTeamField). A finished one
+    // still advances completedStart so fillNext's calendar walk moves past it
+    // without having to fetch its scoreboard again.
+    if (isTeamEvent(ev)) {
+      Serial.printf("[espn] ignoring team event \"%s\" (%s)\n",
+                    ev["name"] | "", st);
+      if (strcmp(st, "post") == 0)
+        completedStart = max(completedStart, parseIsoDate(ev["date"] | ""));
+      continue;
+    }
     if (strcmp(st, "in") == 0 || (strcmp(st, "post") == 0 && !isFinal)) {
       liveEvent = ev;
       break;
@@ -1271,8 +1379,13 @@ static bool fetchTour(Tour tour, Leaderboard& out) {
     // fillNext seeds lb.nextStart with the real earliest tee time (header feed).
     // Once that's within 24h the event is imminent enough to render as a live
     // leaderboard: everyone at par with their tee times, including any pick's.
+    // Only when preEvent is the event fillNext settled on, though — its walk
+    // can look past the imminent one (a team event, or a field with none of the
+    // tracked golfers in it), and rendering preEvent then would put the wrong
+    // tournament's field on the board.
     if (!preEvent.isNull() && lb.nextStart > 0 && now > 100000 &&
-        lb.nextStart - now <= 86400) {
+        lb.nextStart - now <= 86400 &&
+        parseIsoDate(preEvent["date"] | "") == lb.nextStartDay) {
       // The scoreboard has no tee times yet this far out, so pull the draw from
       // the header feed and hand it to fillLive as each row's tee-time source.
       // hdrDoc must outlive fillLive (it reads teeSource), so keep it in scope.
@@ -1295,8 +1408,17 @@ static bool fetchTour(Tour tour, Leaderboard& out) {
 // TOUR_AUTO: which of the two boards to show. Walk the tracked golfers in
 // order; the first one found in exactly one tour's field decides. A golfer in
 // both fields (one tour's event just finished, the other's is next) goes to
-// whichever board is live, else PGA. No tracked golfer in either field (fields
-// not yet published, or nobody playing this week) -> PGA.
+// whichever board is live, else PGA.
+//
+// No tracked golfer in either field is the common case between tournaments:
+// fields aren't published until Mon/Tue of tournament week, so for most of the
+// year neither board can prove anything. Rather than always defaulting to PGA
+// — which strands a European pick on a countdown to a US event a fortnight off
+// while the DP World Tour plays this weekend — fall back in this order:
+//   * a board with nothing at all to show (calendar exhausted) loses;
+//   * a live tournament beats a countdown;
+//   * between two countdowns, the event that starts sooner wins.
+// An equal start day (the usual Thu-Sun overlap) keeps the PGA default.
 static Tour chooseTour(const Leaderboard& pga, const Leaderboard& eur) {
   for (uint8_t i = 0; i < settings.pinnedCount && i < MAX_PINNED_GOLFERS; i++) {
     bool inP = pga.pickInField[i], inE = eur.pickInField[i];
@@ -1305,6 +1427,13 @@ static Tour chooseTour(const Leaderboard& pga, const Leaderboard& eur) {
     if (inP && inE)
       return (eur.mode == MODE_LIVE && pga.mode != MODE_LIVE) ? TOUR_EUR : TOUR_PGA;
   }
+  if (pga.mode == MODE_NONE && eur.mode != MODE_NONE) return TOUR_EUR;
+  if (eur.mode == MODE_NONE) return TOUR_PGA;
+  if (eur.mode == MODE_LIVE && pga.mode != MODE_LIVE) return TOUR_EUR;
+  if (pga.mode == MODE_LIVE) return TOUR_PGA;
+  if (eur.nextStartDay != 0 && pga.nextStartDay != 0 &&
+      eur.nextStartDay < pga.nextStartDay)
+    return TOUR_EUR;
   return TOUR_PGA;
 }
 
