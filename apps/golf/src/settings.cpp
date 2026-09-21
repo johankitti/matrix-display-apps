@@ -14,6 +14,8 @@ void settingsLoad() {
   store.beginRead();
 
   settings.brightness = store.u8("bright", PANEL_BRIGHTNESS);
+  settings.tour = store.u8("tour", DEFAULT_TOUR);
+  if (settings.tour >= TOUR_COUNT) settings.tour = DEFAULT_TOUR;
   sleepLoad(store, settings.night, NIGHT_MODE_ENABLED, NIGHT_START_HOUR,
             NIGHT_END_HOUR, TIMEZONE_POSIX);
 
@@ -39,6 +41,7 @@ void settingsSave() {
   store.beginWrite();
 
   store.put("bright", settings.brightness);
+  store.put("tour", settings.tour);
   sleepSave(store, settings.night);
   store.put("pinN", (int)settings.pinnedCount);
   for (uint8_t i = 0; i < settings.pinnedCount; i++) {

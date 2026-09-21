@@ -1,6 +1,7 @@
 // ============================================================================
 //  Golf Live Update
-//  Live PGA Tour leaderboard on a 64x64 HUB75 RGB LED matrix (ESP32-S3).
+//  Live PGA Tour / DP World Tour leaderboard on a 64x64 HUB75 RGB LED matrix
+//  (ESP32-S3).
 //
 //  Data: ESPN's public scoreboard JSON, refreshed every 5 minutes.
 //  See README.md for wiring and configuration.
@@ -193,12 +194,21 @@ void loop() {
       nextDelayMs = (board.mode == MODE_LIVE) ? UPDATE_INTERVAL_MS
                                               : IDLE_UPDATE_INTERVAL_MS;
       if (board.mode == MODE_LIVE) {
-        Serial.printf("[espn] live: %s (%s), %d leaders, %d pinned\n",
-                      board.eventName, board.roundLabel, board.leaderCount,
-                      board.pinnedCount);
+        Serial.printf("[espn] live: %s (%s) [%s], %d leaders, %d pinned\n",
+                      board.eventName, board.roundLabel, tourLabel(board.tour),
+                      board.leaderCount, board.pinnedCount);
+        // Row dump (pos name today total thru tee) — what the panel is drawing.
+        for (uint8_t i = 0; i < board.leaderCount + board.pinnedCount; i++) {
+          const GolferRow& r = i < board.leaderCount
+                                   ? board.leaders[i]
+                                   : board.pinned[i - board.leaderCount];
+          Serial.printf("[row] %-4s %-9s %-4s %-4s %-3s %s%s\n", r.pos, r.name,
+                        r.today, r.score, r.thru, r.tee, r.selected ? " *" : "");
+        }
       } else {
-        Serial.printf("[espn] next up: %s (%s), %d pinned golfers\n",
-                      board.nextName, board.nextDates, board.nextGolferCount);
+        Serial.printf("[espn] next up: %s (%s) [%s], %d pinned golfers\n",
+                      board.nextName, board.nextDates, tourLabel(board.tour),
+                      board.nextGolferCount);
       }
     } else {
       nextDelayMs = RETRY_INTERVAL_MS;

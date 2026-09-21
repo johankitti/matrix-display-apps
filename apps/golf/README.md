@@ -1,6 +1,6 @@
 # ⛳ Golf Live Update
 
-**A live PGA Tour leaderboard on a 64×64 RGB LED matrix, powered by an ESP32-S3.**
+**A live PGA Tour / DP World Tour leaderboard on a 64×64 RGB LED matrix, powered by an ESP32-S3.**
 
 Shows the tournament name, current round, the top 5, and your favourite golfers —
 refreshed straight from ESPN every 5 minutes. No backend, no API key, no subscriptions.
@@ -171,6 +171,13 @@ the board's IP address (printed to the serial log, and shown on the page itself)
 From there you can, without reflashing:
 
 - **Brightness** — 0–255 slider, applied to the panel immediately on save.
+- **Tour** — *PGA Tour*, *DP World Tour* (European Tour), or *Auto*. Auto follows
+  your tracked golfers: the board shows whichever tour the first tracked golfer is
+  playing this week; if they're in neither field it looks at the second, then the
+  third, and falls back to the PGA Tour when none of them is entered anywhere.
+  (A golfer in both tours' current events — one just finished, one about to start —
+  goes to whichever is live.) Auto fetches both tours on every refresh, so a live
+  update takes roughly twice as long.
 - **Night mode** — toggle it and set the from/to hours (see below).
 - **Tracked golfers** — up to 3 surnames to pin below the leaders.
 - **Refresh now** — force an immediate re-fetch instead of waiting for the timer.
@@ -180,7 +187,7 @@ The page also shows live status: the current event/round (or next event), the
 board's IP, Wi-Fi signal strength, and uptime.
 
 > **Where settings live.** The values in [`include/config.h`](include/config.h)
-> (brightness, pinned golfers, night hours) are only the **first-boot defaults**.
+> (brightness, tour, pinned golfers, night hours) are only the **first-boot defaults**.
 > The moment you save from the web page they're written to the ESP32's NVS flash
 > and become the source of truth — they persist across reboots *and* reflashes.
 > Editing `config.h` afterward won't change a device that already has saved
@@ -225,7 +232,20 @@ flowchart LR
 ```
 
 - **Data source:** ESPN's public, keyless endpoint
-  [`site.api.espn.com/.../golf/pga/scoreboard`](https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard).
+  [`site.api.espn.com/.../golf/pga/scoreboard`](https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard)
+  for the PGA Tour, and the same endpoint with `eur` in place of `pga` for the
+  DP World Tour — identical JSON shape, so one parser serves both.
+- **DP World Tour live scoring comes from BBC Sport.** ESPN's `eur` feed is hours
+  behind during play (no holes played, previous round's totals, wrong tee times),
+  so while a DP World Tour round is in progress the live rows come from BBC's
+  keyless leaderboard feed instead
+  ([`web-cdn.api.bbci.co.uk/wc-poll-data/container/golf-leaderboard?urn=…european-tour`](https://web-cdn.api.bbci.co.uk/wc-poll-data/container/golf-leaderboard?urn=urn%3Abbc%3Asportsdata%3Agolf%3Atournament%3Aeuropean-tour),
+  ~60 KB). It's also used between rounds whenever ESPN still hasn't caught up to
+  the round BBC says is complete, and on its own if ESPN is unreachable. ESPN
+  keeps supplying the calendar, the upcoming event's field, and the tee sheets
+  between rounds. BBC transliterates names ("Aaberg", "Hoejgaard"), so players
+  are matched across feeds and against your tracked surnames with those digraphs
+  collapsed, and shown with ESPN's spelling.
 - **The 1.3 MB problem:** the response is far bigger than the chip's RAM. The firmware
   streams it through [ArduinoJson's filter](https://arduinojson.org/v7/api/json/deserializejson/)
   so only ~a dozen fields per player are ever kept (in PSRAM).
