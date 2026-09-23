@@ -59,6 +59,10 @@ static void headerUrl(char* buf, size_t n) {
   snprintf(buf, n, ESPN_HEADER_URL_FMT, g_tour->slug);
 }
 
+static void eventTeesUrl(char* buf, size_t n, const char* eventId) {
+  snprintf(buf, n, ESPN_EVENT_TEES_URL_FMT, g_tour->slug, eventId);
+}
+
 // ---------------------------------------------------------------------------
 // Text helpers: the LED font is ASCII-only, so "Ludvig Åberg" must become
 // "ABERG" before it can be drawn.
@@ -466,26 +470,52 @@ static bool classifyOut(JsonObjectConst c, int round, char* badge, size_t n) {
   return false;
 }
 
-// Case- and accent-insensitive full-name match, for lining a scoreboard athlete
-// up with the header feed's tee-time list (both carry ESPN display names).
-static bool sameDisplayName(const char* a, const char* b) {
-  char fa[48], fb[48];
-  asciiFold(a, fa, sizeof(fa));
-  asciiFold(b, fb, sizeof(fb));
-  return strcasecmp(fa, fb) == 0;
+// ---------------------------------------------------------------------------
+// Draw (tee sheet) lookup. The scoreboard withholds tee times until a round is
+// imminent, so a round still to come is read from one of two side feeds, both
+// reduced to a competitor array and handed to fillLive as `teeSource`:
+//
+//   * the per-event leaderboard (fetchEventTees) — the whole field, tee times
+//     keyed by round in linescores[];
+//   * the scoreboard header (fetchHeaderEvent) — a flat status.teeTime, but
+//     only ever the first 25 competitors, so it can't be relied on for a
+//     tracked golfer drawn later in the day.
+//
+// The two accessors below read either shape, so everything downstream is
+// source-agnostic.
+// ---------------------------------------------------------------------------
+
+// A draw entry's ESPN display name ("Ludvig Åberg").
+static const char* drawName(JsonObjectConst c) {
+  const char* n = c["athlete"]["displayName"] | "";
+  return *n ? n : (const char*)(c["displayName"] | "");
 }
 
-// The scoreboard omits tee times until a round is imminent; the header feed
-// (passed to fillLive as `teeSource`) carries them days ahead. Writes the local
-// "HH:MM" for `fullName` into `out`, or leaves `out` untouched if not found.
-static void teeTimeFromHeader(JsonArrayConst teeSource, const char* fullName,
-                              char* out, size_t outSize) {
-  for (JsonObjectConst c : teeSource) {
-    if (sameDisplayName(c["displayName"] | "", fullName)) {
-      time_t tee = parseIsoDateTime(c["status"]["teeTime"] | "");
-      if (tee > 0) epochToLocalHM(tee, out, outSize);
-      return;
-    }
+// A draw entry's tee time for `period`, as a UTC epoch; 0 when it carries none.
+// The per-event feed keys tee times by round, so the round is matched exactly
+// and a missing entry means that round's draw isn't out — never status.teeTime,
+// which holds whichever start comes next and would hand back the round in play.
+// The header feed has no linescores at all, and that single status.teeTime is
+// all it publishes.
+static time_t teeEpochOf(JsonObjectConst c, int period) {
+  JsonArrayConst rounds = c["linescores"].as<JsonArrayConst>();
+  if (rounds.size() == 0) return parseIsoDateTime(c["status"]["teeTime"] | "");
+  for (JsonObjectConst ls : rounds)
+    if ((int)(ls["period"] | 0) == period)
+      return parseIsoDateTime(ls["teeTime"] | "");
+  return 0;
+}
+
+// Writes `fullName`'s local "HH:MM" tee time for `period` into `out`, or leaves
+// `out` untouched when the draw doesn't carry one. Matched on nameKey so either
+// feed's spelling of an accented name lines up with the scoreboard's.
+static void teeTimeFromDraw(JsonArrayConst draw, const char* fullName,
+                            int period, char* out, size_t outSize) {
+  for (JsonObjectConst c : draw) {
+    if (!sameNameKey(drawName(c), fullName)) continue;
+    time_t tee = teeEpochOf(c, period);
+    if (tee > 0) epochToLocalHM(tee, out, outSize);
+    return;
   }
 }
 
@@ -556,11 +586,11 @@ static void fillRow(GolferRow& row, JsonObjectConst c, const char* compState,
   }
 
   // Before a round is imminent the scoreboard carries no tee time (the loop
-  // above found nothing); fall back to the header feed's draw when one was
-  // supplied — this is what fills the within-24h pre-tournament leaderboard.
+  // above found nothing); fall back to the draw when one was supplied — this is
+  // what fills the within-24h pre-tournament leaderboard.
   if (row.tee[0] == 0 && !teeSource.isNull())
-    teeTimeFromHeader(teeSource, c["athlete"]["displayName"] | "", row.tee,
-                      sizeof(row.tee));
+    teeTimeFromDraw(teeSource, c["athlete"]["displayName"] | "", period, row.tee,
+                    sizeof(row.tee));
 }
 
 // Between rounds ESPN publishes the next round's tee times into that round's
@@ -756,18 +786,94 @@ static bool fetchHeaderEvent(JsonDocument& doc, const char* matchDateIso) {
   return true;
 }
 
-static void fillNextTeeTimes(Leaderboard& lb, const char* startIso,
-                             ArduinoJson::Allocator* allocator) {
-  JsonDocument doc(allocator);
-  if (!fetchHeaderEvent(doc, startIso)) return;  // countdown off, tees blank
+// The competitor array inside a per-event tee sheet document.
+static JsonArrayConst eventTees(const JsonDocument& doc) {
+  return doc["events"][0]["competitions"][0]["competitors"].as<JsonArrayConst>();
+}
 
-  JsonObjectConst ev = doc["sports"][0]["leagues"][0]["events"][0];
+// Fetches the whole field's tee sheet for ESPN event `eventId` into `doc`. Like
+// fetchHeaderEvent this only accepts the tournament starting `matchDateIso`, so
+// a stale or misrouted id can never put another event's times on the board, and
+// it insists the draw be one still to come. Returns false — with `doc` unusable
+// — on any network error, a date mismatch, or when the feed carries no tee time
+// for `period` yet (before the draw is out that round's linescores are bare
+// {"period":N} placeholders). One retry, as the header feed does: this host's
+// TLS handshake fails intermittently. `doc` must have been constructed with the
+// caller's allocator, since its parsed body outlives this.
+static bool fetchEventTees(JsonDocument& doc, const char* eventId, int period,
+                           const char* matchDateIso) {
+  int wy, wm, wd;
+  if (!eventId || !*eventId) return false;
+  if (sscanf(matchDateIso, "%d-%d-%d", &wy, &wm, &wd) != 3) return false;
+
+  JsonDocument filter;
+  JsonObject fEv = filter["events"].add<JsonObject>();
+  fEv["date"] = true;
+  JsonObject fc =
+      fEv["competitions"].add<JsonObject>()["competitors"].add<JsonObject>();
+  fc["athlete"]["displayName"] = true;
+  fc["status"]["teeTime"] = true;
+  JsonObject fLine = fc["linescores"].add<JsonObject>();
+  fLine["period"] = true;
+  fLine["teeTime"] = true;
+
+  char url[200];
+  eventTeesUrl(url, sizeof(url), eventId);
+  bool ok = false;
+  time_t now = 0;
+  for (int attempt = 0; attempt < 2 && !ok; attempt++)
+    ok = getJson(url, doc, filter, &now);
+  if (!ok) return false;
+
+  JsonObjectConst ev = doc["events"][0];
+  int ey, em, ed;
+  if (sscanf(ev["date"] | "", "%d-%d-%d", &ey, &em, &ed) != 3) return false;
+  if (!(ey == wy && em == wm && ed == wd)) return false;  // another event
+
+  time_t latest = 0;
+  for (JsonObjectConst c : eventTees(doc)) {
+    time_t tee = teeEpochOf(c, period);
+    if (tee > latest) latest = tee;
+  }
+  if (latest == 0) return false;  // R`period` draw not published yet
+  if (now > 100000 && latest < now - 3600) {
+    Serial.printf("[espn] R%d draw is stale (all tee times past), ignoring\n",
+                  period);
+    return false;
+  }
+  Serial.printf("[espn] R%d tee sheet: %u players\n", period,
+                (unsigned)eventTees(doc).size());
+  return true;
+}
+
+// The draw for round `period` of the tournament starting `matchDateIso`, as a
+// competitor array for teeTimeFromDraw/teeEpochOf. Prefers the per-event tee
+// sheet, which covers the whole field; falls back to the header feed's first 25
+// when there's no event id or that fetch fails. Null when neither has a draw.
+// Both documents must outlive the returned array, hence the two out-params.
+static JsonArrayConst fetchDraw(const char* eventId, const char* matchDateIso,
+                                int period, JsonDocument& evDoc,
+                                JsonDocument& hdrDoc) {
+  if (fetchEventTees(evDoc, eventId, period, matchDateIso)) return eventTees(evDoc);
+  if (fetchHeaderEvent(hdrDoc, matchDateIso))
+    return hdrDoc["sports"][0]["leagues"][0]["events"][0]["competitors"]
+        .as<JsonArrayConst>();
+  return JsonArrayConst();
+}
+
+static void fillNextTeeTimes(Leaderboard& lb, const char* eventId,
+                             const char* startIso,
+                             ArduinoJson::Allocator* allocator) {
+  JsonDocument evDoc(allocator), hdrDoc(allocator);
+  JsonArrayConst draw = fetchDraw(eventId, startIso, 1, evDoc, hdrDoc);
+  if (draw.isNull()) return;  // countdown off, tees blank
+
   time_t earliest = 0;
-  for (JsonObjectConst c : ev["competitors"].as<JsonArrayConst>()) {
-    time_t tee = parseIsoDateTime(c["status"]["teeTime"] | "");
+  for (JsonObjectConst c : draw) {
+    time_t tee = teeEpochOf(c, 1);
     if (tee == 0) continue;
     if (earliest == 0 || tee < earliest) earliest = tee;
-    const char* fullName = c["displayName"] | "";
+    const char* fullName = drawName(c);
     for (uint8_t i = 0; i < lb.nextGolferCount; i++) {
       if (nameMatchesPattern(fullName, settings.pinned[i]))
         epochToLocalHM(tee, lb.nextGolfers[i].tee, sizeof(lb.nextGolfers[i].tee));
@@ -804,8 +910,10 @@ static bool fetchEventField(const char* startIso, JsonDocument& doc) {
   scoreboardUrl(url, sizeof(url), query);
 
   JsonDocument filter;
-  JsonObject fc = filter["events"].add<JsonObject>()["competitions"]
-                      .add<JsonObject>()["competitors"].add<JsonObject>();
+  JsonObject fEv = filter["events"].add<JsonObject>();
+  fEv["id"] = true;  // keys the event's tee sheet (see fetchEventTees)
+  JsonObject fc = fEv["competitions"].add<JsonObject>()["competitors"]
+                      .add<JsonObject>();
   fc["type"] = true;
   fc["athlete"]["displayName"] = true;
   return getJson(url, doc, filter, nullptr);
@@ -874,6 +982,9 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
   const char* nearStart = nullptr;
   const char* nearEnd = nullptr;
   const char* nearLabel = nullptr;
+  // ESPN event ids for those two (copied, not pointed at: fieldDoc is reused by
+  // the next iteration of the walk). Empty when that event's fetch failed.
+  char startId[16] = "", nearId[16] = "";
 
   uint8_t looked = 0;
   for (JsonObjectConst c : doc["leagues"][0]["calendar"].as<JsonArrayConst>()) {
@@ -894,6 +1005,8 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
       nearStart = iso;
       nearEnd = c["endDate"] | "";
       nearLabel = c["label"] | g_tour->label;
+      strlcpy(nearId, haveField ? (const char*)(fieldDoc["events"][0]["id"] | "") : "",
+              sizeof(nearId));
     }
     if (haveField && settings.pinnedCount > 0 && eventField(fieldDoc).size() > 0 &&
         !fieldHasPick(eventField(fieldDoc))) {
@@ -904,6 +1017,8 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
     label = c["label"] | g_tour->label;
     startIso = iso;
     endIso = c["endDate"] | "";
+    strlcpy(startId, haveField ? (const char*)(fieldDoc["events"][0]["id"] | "") : "",
+            sizeof(startId));
     break;
   }
   if (!startIso && nearStart) {
@@ -913,6 +1028,7 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
     label = nearLabel;
     startIso = nearStart;
     endIso = nearEnd;
+    strlcpy(startId, nearId, sizeof(startId));
     haveField = false;
     allOut = true;
   }
@@ -936,9 +1052,9 @@ static void fillNext(Leaderboard& lb, const JsonDocument& doc, time_t now,
     lb.nextGolfers[i].tee[0] = 0;
   }
 
-  // Seed the countdown (and pinned tee times) from the header feed. Done before
-  // the no-pinned early return so the countdown works even with nothing pinned.
-  fillNextTeeTimes(lb, startIso, allocator);
+  // Seed the countdown (and pinned tee times) from the draw. Done before the
+  // no-pinned early return so the countdown works even with nothing pinned.
+  fillNextTeeTimes(lb, startId, startIso, allocator);
 
   if (lb.nextGolferCount == 0) return;
   if (!haveField) return;  // event scoreboard unavailable (or all OUT): done
@@ -1225,6 +1341,7 @@ static bool fetchTour(Tour tour, Leaderboard& out) {
   // Filter: of the ~1.3 MB response, keep only these fields (~50 KB).
   JsonDocument filter;
   JsonObject fEvent = filter["events"].add<JsonObject>();
+  fEvent["id"] = true;  // keys the per-event tee sheet (see fetchEventTees)
   fEvent["shortName"] = true;
   fEvent["name"] = true;
   fEvent["date"] = true;
@@ -1351,12 +1468,12 @@ static bool fetchTour(Tour tour, Leaderboard& out) {
   lb.tour = tour;
   if (!liveEvent.isNull()) {
     // Between rounds the scoreboard withholds the next round's tee times until a
-    // few hours out, but the header feed carries them days ahead. When the
-    // current round is done (not Final) and the scoreboard has no tee times for
-    // the next round yet, pull the header feed's draw and hand it to fillLive so
-    // the board shows the upcoming round's start list instead of a flat "F".
-    // hdrDoc must outlive fillLive (it reads teeSource), so keep it in scope.
-    JsonDocument hdrDoc(&allocator);
+    // few hours out, but the side feeds carry them days ahead. When the current
+    // round is done (not Final) and the scoreboard has no tee times for the next
+    // round yet, pull the draw and hand it to fillLive so the board shows the
+    // upcoming round's start list instead of a flat "F". Both documents must
+    // outlive fillLive (it reads teeSource), so keep them in scope.
+    JsonDocument evDoc(&allocator), hdrDoc(&allocator);
     JsonArrayConst teeSource;
     JsonObjectConst liveComp = liveEvent["competitions"][0];
     JsonObjectConst liveType = liveComp["status"]["type"];
@@ -1365,10 +1482,9 @@ static bool fetchTour(Tour tour, Leaderboard& out) {
                        strcmp(liveType["name"] | "", "STATUS_FINAL") != 0;
     if (liveBetween && livePeriod >= 1 && livePeriod < 4 &&
         !roundHasTeeTimes(liveComp["competitors"].as<JsonArrayConst>(),
-                          livePeriod + 1) &&
-        fetchHeaderEvent(hdrDoc, liveEvent["date"] | ""))
-      teeSource = hdrDoc["sports"][0]["leagues"][0]["events"][0]
-                      ["competitors"].as<JsonArrayConst>();
+                          livePeriod + 1))
+      teeSource = fetchDraw(liveEvent["id"] | "", liveEvent["date"] | "",
+                            livePeriod + 1, evDoc, hdrDoc);
     fillLive(lb, liveEvent, teeSource);
   } else if (!finalEvent.isNull() && now > 100000 &&
              now < eventEndFromCalendar(doc, finalEvent) + 86400) {
@@ -1386,14 +1502,13 @@ static bool fetchTour(Tour tour, Leaderboard& out) {
     if (!preEvent.isNull() && lb.nextStart > 0 && now > 100000 &&
         lb.nextStart - now <= 86400 &&
         parseIsoDate(preEvent["date"] | "") == lb.nextStartDay) {
-      // The scoreboard has no tee times yet this far out, so pull the draw from
-      // the header feed and hand it to fillLive as each row's tee-time source.
-      // hdrDoc must outlive fillLive (it reads teeSource), so keep it in scope.
-      JsonDocument hdrDoc(&allocator);
-      JsonArrayConst teeSource;
-      if (fetchHeaderEvent(hdrDoc, preEvent["date"] | ""))
-        teeSource = hdrDoc["sports"][0]["leagues"][0]["events"][0]
-                        ["competitors"].as<JsonArrayConst>();
+      // The scoreboard has no tee times yet this far out, so pull round 1's draw
+      // from the side feeds and hand it to fillLive as each row's tee-time
+      // source. Both documents must outlive fillLive (it reads teeSource), so
+      // keep them in scope.
+      JsonDocument evDoc(&allocator), hdrDoc(&allocator);
+      JsonArrayConst teeSource = fetchDraw(preEvent["id"] | "",
+                                           preEvent["date"] | "", 1, evDoc, hdrDoc);
       Leaderboard live;
       live.tour = tour;
       fillLive(live, preEvent, teeSource);

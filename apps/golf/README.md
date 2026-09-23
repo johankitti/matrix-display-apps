@@ -42,7 +42,7 @@ event, its dates, and whether each of your golfers is in the field:
 
 | Part | Notes | Link |
 |------|-------|------|
-| 64×64 RGB LED matrix, P2, HUB75 | 128×128 mm, 1/32 scan | [Electrokit](https://www.electrokit.com/en/full-color-panel-2mm-rgb-led-matrix-64x64px-128x128mm-p2) |
+| 64×64 RGB LED matrix, P3, HUB75 | 192×192 mm, 1/32 scan | [Waveshare](https://www.waveshare.com/wiki/RGB-Matrix-P3-64x64) |
 | ESP32-S3 mini dev board | Rebranded [Waveshare ESP32-S3-Zero](https://www.waveshare.com/wiki/ESP32-S3-Zero): S3FH4R2, 4 MB flash / 2 MB PSRAM. Headers expose GPIO 1–13 + 43/44 — the default pin map matches them exactly | [Electrokit](https://www.electrokit.com/esp32-s3-utvecklingskort-mini-4mb-psram-2mb-med-headers) |
 | 5 V power supply, ≥ 4 A | Powers the panel directly — **not** through the dev board | any quality 5 V/4 A PSU |
 | Female–female dupont wires ×16 | Panel usually ships with an IDC data cable + power harness | — |
@@ -88,7 +88,7 @@ All pins are configurable in [`include/config.h`](include/config.h).
 **Power — read this once, save yourself a smoked board:**
 
 - Feed the panel's screw/spade power terminals **directly from the 5 V PSU**.
-  A 64×64 P2 panel can pull ~4 A at full white — far beyond what the dev board's
+  A 64×64 P3 panel can pull ~4 A at full white — far beyond what the dev board's
   5 V pin or USB port can supply.
 - Connect **PSU GND ↔ panel GND ↔ ESP32 GND** (common ground, always).
 - The dev board itself can run off USB, or off the same PSU's 5 V into its 5V pin.

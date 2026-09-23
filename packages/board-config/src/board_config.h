@@ -2,7 +2,7 @@
 // =============================================================================
 //  board-config — shared HUB75 <-> ESP32-S3-Zero pin map + panel geometry
 //
-//  Every app in this monorepo drives the same 64x64 P2 HUB75 panel from the same
+//  Every app in this monorepo drives the same 64x64 P3 HUB75 panel from the same
 //  Waveshare ESP32-S3-Zero ("S3 mini") board, so the wiring lives here once
 //  instead of being copy-pasted into each app's config.h. See
 //  docs/hardware-reference.md for the board photo, wiring and power notes.

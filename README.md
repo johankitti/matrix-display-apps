@@ -101,8 +101,12 @@ matrix-display-apps/
 │   ├── net-core/             # resilient WiFiManager provisioning + HTTP fetch
 │   ├── web-core/             # settings-server shell (mDNS, Restart / Wi-Fi reset)
 │   ├── settings-core/        # NVS/Preferences wrapper + brightness clamp
+│   ├── input-core/           # rotary-encoder brightness knob (live + debounced save)
 │   └── sleep-core/           # night schedule: settings + web control + NTP +
 │                             #   deep-sleep-until-morning
+│
+├── hardware/                 # 3D-printable case
+│   └── enclosure/            # parametric generator + ready-to-slice STLs
 │
 ├── docs/                     # shared hardware reference (board, wiring, power)
 └── README.md
@@ -183,14 +187,71 @@ change a pin there and all three apps pick it up.
 
 | Part | Notes |
 |------|-------|
-| 64×64 RGB LED matrix, P2, HUB75 | 128×128 mm, 1/32 scan |
+| 64×64 RGB LED matrix, P3, HUB75 | 192×192 mm, 1/32 scan |
 | ESP32-S3-Zero ("S3 mini") | S3FH4R2 — 4 MB flash / 2 MB PSRAM |
-| 5 V power supply, ≥ 4 A | Powers the panel **directly** — not through the dev board |
+| 5 V power supply, 3 A | Powers the panel **directly** — not through the dev board |
 | Dupont wires ×16 | Panel usually ships with an IDC data cable + power harness |
 
 > ⚡ **Power, read once:** feed the panel's 5 V terminals directly from the
 > supply, tie **all grounds together**, and keep brightness low (~20) while
-> bench-testing on USB. A P2 panel can pull ~4 A at full white.
+> bench-testing on USB. A P3 panel is rated ~4 A at full white, which is why every
+> app caps `BRIGHTNESS_MAX` at 140/255 for the 3 A supply.
+
+---
+
+## 🖨️ Enclosure
+
+A 3D-printable back box that the panel drops into, in
+[`hardware/enclosure/`](hardware/enclosure). Two parts, both printed flat with
+no supports:
+
+| File | What it is | Size |
+|------|------------|------|
+| [`enclosure.stl`](hardware/enclosure/enclosure.stl) | The case — prints back-down | 196.4 × 196.4 × 46.4 mm |
+| [`esp32_dock.stl`](hardware/enclosure/esp32_dock.stl) | Snap-in cradle for the ESP32-S3-Zero | 21.8 × 25.7 × 11.6 mm |
+| [`make_enclosure.py`](hardware/enclosure/make_enclosure.py) | The parametric model both are generated from | — |
+
+> 📐 **How the panel sits:** its 191 mm plastic back frame drops into the
+> pocket and the 192.8 mm LED face rests on the rim, outside the box — so the
+> case is cut for the 192 × 192 mm P3 panel in the table above, and nothing
+> else.
+>
+> ⚠️ The model cuts holes for the **DC jack and encoder only** — there is no
+> cut-out for the rocker switch. The jack hole fits the switched DC-022 type
+> (Electrokit `41019430`); see the
+> [hardware reference](docs/hardware-reference.md#1-bill-of-materials).
+
+**How it goes together**
+
+- Eight posts around the inside back up the panel frame; behind it a **32 mm
+  cavity** holds the board, the HUB75 ribbon and the power wiring.
+- The **ESP32 dock prints separately** and slides down a dovetail rail on the
+  right wall, so the board can come out without touching the case. The board
+  sits *upside down*: USB-C and components in a well against the wall, header
+  pins pointing inward. Tilt the USB end in first, then press the far end past
+  the snap hook.
+- **All connectors leave through the right wall**, keeping the bottom edge flat
+  so the case can just stand on a desk — a 5.5 × 2.1 mm DC barrel jack low down
+  and the [rotary encoder](packages/input-core) knob near the top.
+- Two **keyhole slots** near the top edge for wall hanging, and vent slots
+  through the back plate.
+
+**Changing it**
+
+The STLs are generated, not hand-modelled — edit the `PARAMS` block at the top
+of `make_enclosure.py` and re-run. It self-checks as it builds (connector holes
+must clear the posts and the dock, the dock must fit the cavity and not
+intersect the case), so a bad parameter fails loudly instead of printing wrong:
+
+```bash
+cd hardware/enclosure
+python3 -m venv .venv && .venv/bin/pip install numpy manifold3d
+.venv/bin/python make_enclosure.py      # rewrites both .stl files
+```
+
+> Useful knobs: `MOUNT_HOLES` (empty by default) adds M3 standoffs lining up
+> with the panel's brass inserts; `USB_JACK = True` cuts a panel-mount USB-C
+> hole; `KEYHOLES` / `VENTS` turn those features off.
 
 ---
 

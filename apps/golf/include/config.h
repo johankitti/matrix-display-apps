@@ -41,6 +41,16 @@
 #define ESPN_HEADER_URL_FMT \
   "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=golf&league=%s"
 
+// ESPN's per-event leaderboard feed. The header feed above is capped at 25
+// competitors — the earliest starters only — so a tracked golfer drawn later in
+// the day has no tee time there at all. This one carries the whole field, each
+// competitor with a status.teeTime and a per-round linescores[].teeTime, from
+// the moment the draw is published. First "%s" is the league slug, second the
+// ESPN event id. ~200 KB, filtered down to a few KB.
+#define ESPN_EVENT_TEES_URL_FMT \
+  "https://site.web.api.espn.com/apis/site/v2/sports/golf/leaderboard" \
+  "?league=%s&event=%s"
+
 // BBC Sport's keyless golf leaderboard feed. ESPN's DP World Tour scoring is
 // stale during play (hours behind, no holes-played), so while a round is in
 // progress the EUR board's live rows come from here instead. "%s" is the BBC
@@ -118,7 +128,7 @@ static const size_t PINNED_GOLFER_COUNT =
 // board-config (included at the top of this file). Only the app-specific
 // default brightness lives here.
 
-// 0–255. P2 panels are BRIGHT — 255 at ~30 cm is uncomfortable, and drives
+// 0–255. P3 panels are BRIGHT — 255 at ~30 cm is uncomfortable, and drives
 // the power draw toward the panel's 4 A max. 60–120 is plenty indoors.
 // PANEL_BRIGHTNESS is only the first-boot default; the live value is stored in
 // NVS and set by the rotary encoder (input-core) / web slider.
