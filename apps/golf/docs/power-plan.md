@@ -7,7 +7,7 @@ the ESP32 board.
 
 ## What the project is
 
-A **64×64 P2 HUB75 RGB LED matrix panel** (a "screen" of 4096 LEDs) driven by a
+A **64×64 P3 HUB75 RGB LED matrix panel** (a "screen" of 4096 LEDs) driven by a
 small **Waveshare ESP32-S3-Zero** microcontroller. The ESP32 renders a golf
 leaderboard onto the panel. Everything runs at **5 volts DC**.
 

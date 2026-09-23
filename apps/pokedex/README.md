@@ -15,7 +15,7 @@ Sprite on top, name across the bottom. Hold for a few seconds. Next.
       ║     /  PIKACHU        ║      animated where it exists
       ║    #025              ║      configured over Wi-Fi
       ╚══════════════════════╝
-        64 × 64 · P2 · HUB75E
+        64 × 64 · P3 · HUB75E
 ```
 
 ![platform](https://img.shields.io/badge/platform-ESP32--S3-E7352C?style=flat-square)
@@ -53,7 +53,7 @@ Sprite on top, name across the bottom. Hold for a few seconds. Next.
 | Part | Detail |
 |---|---|
 | **MCU** | [Waveshare ESP32-S3-Zero](https://www.waveshare.com/wiki/ESP32-S3-Zero) — ESP32-S3FH4R2, 4 MB flash / 2 MB PSRAM, USB-C |
-| **Display** | [64×64 P2 HUB75 RGB LED matrix](https://www.electrokit.com/en/full-color-panel-2mm-rgb-led-matrix-64x64px-128x128mm-p2) (128×128 mm) |
+| **Display** | [64×64 P3 HUB75 RGB LED matrix](https://www.waveshare.com/wiki/RGB-Matrix-P3-64x64) (192×192 mm) |
 | **Power** | 5 V DC, ≥2 A (3 A ideal), center-positive, 5.5×2.1 mm barrel |
 | **Encoder** | Bourns PEC11R rotary encoder (24 detents + push) |
 | **Wiring** | 16-pin IDC → Dupont female cable (ships with the panel) |

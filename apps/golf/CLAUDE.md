@@ -10,7 +10,7 @@
 
 ## Project shape
 
-64×64 P2 HUB75 RGB matrix driven by an ESP32-S3 (Waveshare S3-Zero / Electrokit
+64×64 P3 HUB75 RGB matrix driven by an ESP32-S3 (Waveshare S3-Zero / Electrokit
 "S3 mini"). Pulls the PGA Tour or DP World Tour leaderboard from ESPN's keyless
 scoreboard endpoint (tour is a web-page setting; "Auto" follows the tracked
 golfers), renders top-5 + pinned golfers. Night-time deep-sleep schedule. PlatformIO build.
