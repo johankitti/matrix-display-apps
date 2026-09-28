@@ -201,52 +201,79 @@ change a pin there and all three apps pick it up.
 
 ## 🖨️ Enclosure
 
-A 3D-printable back box that the panel drops into, in
-[`hardware/enclosure/`](hardware/enclosure). Two parts, both printed flat with
-no supports:
+A 3D-printable back box that the panel drops into, plus a tilting desk stand,
+in [`hardware/enclosure/`](hardware/enclosure). Everything prints without
+supports:
 
 | File | What it is | Size |
 |------|------------|------|
 | [`enclosure.stl`](hardware/enclosure/enclosure.stl) | The case — prints back-down | 196.4 × 196.4 × 46.4 mm |
 | [`esp32_dock.stl`](hardware/enclosure/esp32_dock.stl) | Snap-in cradle for the ESP32-S3-Zero | 21.8 × 25.7 × 11.6 mm |
-| [`make_enclosure.py`](hardware/enclosure/make_enclosure.py) | The parametric model both are generated from | — |
+| [`stand_yoke.stl`](hardware/enclosure/stand_yoke.stl) | Tilt-stand yoke the case hangs in — prints feet-down | 235 × 130 × 133 mm |
+| [`stand_stud.stl`](hardware/enclosure/stand_stud.stl) | Pivot stud, hex head + printed thread — print **2**, head-down | ø14 × 30 mm |
+| [`stand_knob.stl`](hardware/enclosure/stand_knob.stl) | Twist knob with the female thread — print **2**, face-down | ø34 × 16 mm |
+| [`make_enclosure.py`](hardware/enclosure/make_enclosure.py) | The parametric model all of them are generated from | — |
 
 > 📐 **How the panel sits:** its 191 mm plastic back frame drops into the
 > pocket and the 192.8 mm LED face rests on the rim, outside the box — so the
 > case is cut for the 192 × 192 mm P3 panel in the table above, and nothing
 > else.
 >
-> ⚠️ The model cuts holes for the **DC jack and encoder only** — there is no
-> cut-out for the rocker switch. The jack hole fits the switched DC-022 type
-> (Electrokit `41019430`); see the
-> [hardware reference](docs/hardware-reference.md#1-bill-of-materials).
+> 🔩 The right wall is cut for exactly the parts in the
+> [hardware reference](docs/hardware-reference.md#1-bill-of-materials): the
+> switched DC-022 jack (Electrokit `41019430`), the 13.0 × 19.8 mm rocker
+> switch (`41002801`) and the encoder bushing. Swap a part and re-run the
+> generator with its dimensions.
 
 **How it goes together**
 
-- Eight posts around the inside back up the panel frame; behind it a **32 mm
-  cavity** holds the board, the HUB75 ribbon and the power wiring.
+- Eight posts around the inside back up the panel frame (the two on the side
+  walls double as the stand's pivot blocks); behind it a **32 mm cavity** holds
+  the board, the HUB75 ribbon and the power wiring.
 - The **ESP32 dock prints separately** and slides down a dovetail rail on the
-  right wall, so the board can come out without touching the case. The board
+  left wall, so the board can come out without touching the case. The board
   sits *upside down*: USB-C and components in a well against the wall, header
   pins pointing inward. Tilt the USB end in first, then press the far end past
   the snap hook.
 - **All connectors leave through the right wall**, keeping the bottom edge flat
-  so the case can just stand on a desk — a 5.5 × 2.1 mm DC barrel jack low down
-  and the [rotary encoder](packages/input-core) knob near the top.
+  so the case can just stand on a desk. From the bottom up: the 5.5 × 2.1 mm DC
+  barrel jack, the power rocker switch just above it, and the
+  [rotary encoder](packages/input-core) knob near the top. All three are
+  centred on the wall's height, so they line up from outside; the dock is on
+  the opposite wall so its USB plug never fights the connectors for room.
 - Two **keyhole slots** near the top edge for wall hanging, and vent slots
   through the back plate.
+
+**Tilt stand**
+
+- The case hangs between the yoke's arms on a pivot through its exact centre,
+  so it is balanced at any angle and floats about 14 mm above the desk. It
+  tilts forward and back in **15° steps**; the model checks the swing to ±45°.
+- Per side, inside to out: drop a **stud** hex-head-first into the pocket in
+  the side wall's mid block (before the panel goes in). Its thread pokes out
+  through the wall inside a ring of 24 teeth. Hang the yoke arm over the
+  thread, its own tooth ring facing the case, and screw the **knob** on until
+  the teeth mesh. To re-tilt, loosen the knob about a third of a turn, tilt,
+  tighten. No metal parts anywhere.
+- Printing: yoke feet-down, studs head-down, knobs face-down. The threads are
+  printed with 0.35 mm clearance, sized for a 0.4 mm nozzle — adjust `THR_CLR`
+  if a knob is tight or sloppy.
+- The keyholes and the flat bottom edge still work without the stand. Set
+  `STAND = False` to drop the pivot blocks and tooth rings from the case.
 
 **Changing it**
 
 The STLs are generated, not hand-modelled — edit the `PARAMS` block at the top
 of `make_enclosure.py` and re-run. It self-checks as it builds (connector holes
 must clear the posts and the dock, the dock must fit the cavity and not
-intersect the case), so a bad parameter fails loudly instead of printing wrong:
+intersect the case, the stand's teeth must mesh, the stud must fit its pocket
+and the knob, and the case must swing ±45° without touching the yoke), so a
+bad parameter fails loudly instead of printing wrong:
 
 ```bash
 cd hardware/enclosure
 python3 -m venv .venv && .venv/bin/pip install numpy manifold3d
-.venv/bin/python make_enclosure.py      # rewrites both .stl files
+.venv/bin/python make_enclosure.py      # rewrites all the .stl files
 ```
 
 > Useful knobs: `MOUNT_HOLES` (empty by default) adds M3 standoffs lining up
