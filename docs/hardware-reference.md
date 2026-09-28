@@ -15,7 +15,7 @@ need to reuse the hardware for a different display project.
 | Power supply | **5 V DC 3 A / 15 W**, center-positive, 5.5×2.1 mm barrel | `41018189` |
 | Rotary encoder | 24 ppr / 24-detent quadrature + push switch (Bourns PEC11R) — the brightness knob | `41021049` |
 | Encoder knob | Rubber, black, ø16 × 14.7 mm, D-shaft | `41017919` |
-| Rocker switch | 2-pole on/off (I/O) | `41002801` |
+| Rocker switch | **2-pole on/off (I/O)**, Bulgin H8550VBBB — 13.0 × 19.8 mm snap-in cut-out, 15 × 21 mm bezel, 4.8 mm blade terminals; the switch the enclosure is cut for | `41002801` |
 | DC jack | **2.1 × 5.5 mm chassis socket with switch** ("chassi brytare", DC-022 type, M13×1 thread) — the jack the enclosure is cut for | `41019430` |
 | Header pins | 2× straight pin-header strips (come with the board) | — |
 | Jumper wires | A few female-Dupont + 2 for power | — |
@@ -25,9 +25,11 @@ Datasheets: [ESP32-S3-Zero wiki](https://www.waveshare.com/wiki/ESP32-S3-Zero) �
 [P3 64×64 panel spec](https://www.waveshare.com/wiki/RGB-Matrix-P3-64x64)
 (3 mm pitch, 192 × 192 mm, 1/32 scan, 5 V / 4 A max).
 
-> ⚠️ **Rocker switch:** the enclosure has **no hole for it** — only the DC
-> jack and the encoder are cut into the right wall. Add it to `SIDE_HOLES` in
-> `make_enclosure.py` and re-run before printing if the switch goes in the case.
+> 🔘 **Rocker switch:** the right wall has a 20.0 × 13.2 mm slot for it,
+> directly above the DC jack, long axis vertical so the rocker flips up/down.
+> It is the 13.0 × 19.8 mm nominal cut-out plus 0.2 mm for FDM shrink; a
+> different switch means changing its `SIDE_HOLES` entry in
+> `make_enclosure.py` and re-running before printing.
 
 > 🔌 **Don't substitute the DC jack.** The 13.3 mm wall hole is sized for the
 > DC-022's M13×1 bushing. The similar-looking `41015531` / MJ-14SR is **rated

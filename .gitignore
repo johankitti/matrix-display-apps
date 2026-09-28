@@ -8,6 +8,9 @@ apps/*/.pio/
 apps/*/include/secrets.h
 include/secrets.h
 
+# Python virtualenv for hardware/enclosure/make_enclosure.py
+.venv/
+
 # Editors / OS
 .vscode/
 .DS_Store
