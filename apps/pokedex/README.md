@@ -92,10 +92,13 @@ pio run -e s3mini -t upload -t monitor # flash + serial monitor (USB power)
 
 **First boot:**
 
-1. The panel shows a **join screen**. Connect to the `Pokedex-Setup` Wi-Fi AP.
+1. The panel shows a **join screen**. Connect to the `Pokedex-Settings` Wi-Fi AP.
 2. A captive portal opens — pick your network and enter the password.
 3. The device reboots, connects, and starts the slideshow.
 4. Open **`http://pokedex-display.local/`** (or the panel's IP) to configure it.
+
+The `Pokedex-Settings` hotspot stays on after it connects, so you can always reach
+the settings page by joining it and opening **`http://192.168.4.1/`**.
 
 Need to move it to a new network later? The web page has a **"Reconfigure Wi-Fi"**
 button — no reflashing, no button-holding.

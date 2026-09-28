@@ -15,7 +15,7 @@
 #include <Arduino.h>
 
 struct NetConfig {
-  const char* apSsid = "Display-Setup";  // setup access-point name
+  const char* apSsid = "Display-Settings";  // setup / settings access-point name
   uint32_t connectTimeoutMs = 180000;    // retry saved creds this long (3 min)
   uint16_t portalTimeoutSec = 180;       // then a portal window this long, then retry
   // Optional UI hooks (nullptr = silent). onConnecting fires before each
@@ -27,7 +27,9 @@ struct NetConfig {
 
 // Bring up Wi-Fi as a station. Blocks until connected (cycling saved-network
 // retries and portal windows forever, so it cannot get permanently stuck).
-// Returns true once connected.
+// Once connected the apSsid access point stays up alongside the station, so
+// the app's settings page is always reachable at http://192.168.4.1/ by
+// joining that network. Returns true once connected.
 bool netStart(const NetConfig& cfg);
 
 // Reconnect using saved creds if the link dropped (never opens the portal).

@@ -285,10 +285,15 @@ python3 -m venv .venv && .venv/bin/pip install numpy manifold3d
 ## 📶 First-boot Wi-Fi
 
 No credentials live in the source. On a fresh board (or after a network change)
-the app opens a `*-Setup` access point; join it from a phone and pick your
+the app opens a `*-Settings` access point; join it from a phone and pick your
 network. Each app alternates saved-network retries with portal windows, so a
 headless unit **can never get permanently stuck**. Change networks later from
 the settings page's **Reconfigure Wi-Fi** button.
+
+Once connected, the `*-Settings` access point **stays on** alongside the home
+network, so the settings page (sleep hours, brightness, …) is always reachable:
+join the board's hotspot and open **`http://192.168.4.1/`** — no need to be on
+the same Wi-Fi or for `.local` to resolve.
 
 ---
 

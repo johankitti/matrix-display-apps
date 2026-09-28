@@ -57,7 +57,8 @@ Only three fields per departure are kept:
 
 ## Settings page
 
-The device serves `http://buss-display.local/` on your Wi-Fi. Because the SL
+The device serves `http://buss-display.local/` on your Wi-Fi, and at
+`http://192.168.4.1/` through its always-on **Buss-Settings** hotspot. Because the SL
 API sends `Access-Control-Allow-Origin: *`, the page does the heavy lifting
 **in the browser**: typeahead search over all 6,510 SL sites (the 1.3 MB list
 never touches the ESP32), a live preview of upcoming departures, and
@@ -84,7 +85,7 @@ pio run -e s3mini -t upload -t monitor
 
 No Wi-Fi credentials in the code: the device uses whatever network is saved
 in its NVS flash (WiFiManager pattern). On a fresh board — or after a network
-change — it opens a **Buss-Setup** access point; join it from a phone and pick
+change — it opens a **Buss-Settings** access point; join it from a phone and pick
 your network. It alternates between retrying the saved network (3 min) and
 portal windows (3 min), so it can never get permanently stuck headless.
 

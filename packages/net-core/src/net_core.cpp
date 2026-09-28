@@ -58,6 +58,20 @@ static bool runPortal(const NetConfig& cfg) {
   return ok && WiFi.status() == WL_CONNECTED;
 }
 
+// Keep the setup AP up next to the station link, so the settings page is always
+// reachable at http://192.168.4.1/ by joining the board's own Wi-Fi — even when
+// the phone isn't on the home network or .local doesn't resolve. The ESP32 has
+// one radio, so the AP simply follows the station's channel.
+static void startSettingsAp(const NetConfig& cfg) {
+  WiFi.mode(WIFI_AP_STA);   // adds the AP; the station stays associated
+  if (!WiFi.softAP(cfg.apSsid)) {
+    Serial.println("[net] settings AP failed to start");
+    return;
+  }
+  Serial.printf("[net] settings AP '%s' at http://%s/\n", cfg.apSsid,
+                WiFi.softAPIP().toString().c_str());
+}
+
 bool netStart(const NetConfig& cfg) {
   WiFi.persistent(true);
   WiFi.mode(WIFI_STA);
@@ -75,6 +89,7 @@ bool netStart(const NetConfig& cfg) {
     Serial.println("[net] portal timed out — retrying saved network");
   }
   Serial.printf("[net] IP %s\n", WiFi.localIP().toString().c_str());
+  startSettingsAp(cfg);
   return true;
 }
 

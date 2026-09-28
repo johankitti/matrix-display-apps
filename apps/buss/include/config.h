@@ -51,7 +51,7 @@
 // router still coming up after a power cut) before offering the setup portal;
 // the portal times out and we retry the saved network again — the device can
 // never get permanently stuck in either phase.
-#define AP_SETUP_SSID           "Buss-Setup"
+#define AP_SETUP_SSID           "Buss-Settings"
 #define NET_CONNECT_TIMEOUT_MS  180000   // 3 min retrying saved creds
 #define NET_PORTAL_TIMEOUT_SEC  180      // then a 3 min portal window, then retry
 
