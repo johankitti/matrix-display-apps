@@ -1,9 +1,12 @@
 #include "web_core.h"
 
+#include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <WiFi.h>
 
 static WebServer s_server(80);
+static DNSServer s_dns;
+static bool s_dnsUp = false;
 
 WebServer& webServer() { return s_server; }
 
@@ -47,6 +50,9 @@ String webStatusChrome() {
   String s = "IP " + WiFi.localIP().toString();
   s += " &middot; " + String(WiFi.RSSI()) + " dBm";
   s += " &middot; up " + String(millis() / 60000) + " min";
+  if (WiFi.getMode() & WIFI_MODE_AP)
+    s += "<br>Hotspot " + webEsc(WiFi.softAPSSID().c_str()) + " &rarr; " +
+         WiFi.softAPIP().toString();
   return s;
 }
 
@@ -75,13 +81,33 @@ static void handleWifiReset() {
   ESP.restart();
 }
 
+// Captive-portal catch-all: phones probe a known URL (Apple's hotspot-detect,
+// Android's generate_204) on joining a network; answering with a redirect to
+// the settings page makes them pop it up automatically. Also catches typos.
+static void handleNotFound() {
+  String url = "http://" + s_server.client().localIP().toString() + "/";
+  s_server.sendHeader("Location", url, true);
+  s_server.send(302, "text/plain", "");
+}
+
 void webCoreBegin(const char* hostname) {
   if (MDNS.begin(hostname)) MDNS.addService("http", "tcp", 80);
   s_server.on("/restart", HTTP_POST, handleRestart);
   s_server.on("/wifi", HTTP_POST, handleWifiReset);
+  s_server.onNotFound(handleNotFound);
+  // net-core keeps the setup AP up: answer every DNS lookup from its clients
+  // with our own IP, so the phone's connectivity probe lands on us.
+  if (WiFi.getMode() & WIFI_MODE_AP)
+    s_dnsUp = s_dns.start(53, "*", WiFi.softAPIP());
   s_server.begin();
   Serial.printf("[web] settings at http://%s.local/  (http://%s/)\n",
                 hostname, WiFi.localIP().toString().c_str());
+  if (WiFi.getMode() & WIFI_MODE_AP)
+    Serial.printf("[web] and via hotspot '%s' at http://%s/\n",
+                  WiFi.softAPSSID().c_str(), WiFi.softAPIP().toString().c_str());
 }
 
-void webCoreHandle() { s_server.handleClient(); }
+void webCoreHandle() {
+  if (s_dnsUp) s_dns.processNextRequest();
+  s_server.handleClient();
+}

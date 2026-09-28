@@ -103,7 +103,7 @@ static const size_t PINNED_GOLFER_COUNT =
 // real board needs no secrets.h. Tap the onboard BOOT button within ~3 s of
 // power-on to re-open the portal and switch networks. (The Wokwi simulator
 // skips all this and connects straight to Wokwi-GUEST.)
-#define WIFI_SETUP_AP_NAME "GolfBoard-setup"
+#define WIFI_SETUP_AP_NAME "Golf-Settings"
 
 // ---------------------------------------------------------------------------
 // Night schedule: power the display down overnight.

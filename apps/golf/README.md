@@ -148,8 +148,8 @@ No credentials are compiled in — you set the network with your phone
 (handled by [WiFiManager](https://github.com/tzapu/WiFiManager)):
 
 1. On a fresh board the panel shows **`WIFI`** while it tries to connect. With no
-   saved network it starts a Wi-Fi hotspot called **`GolfBoard-setup`** and the
-   panel switches to **`WIFI SETUP / JOIN WIFI / GolfBoard-setup`**.
+   saved network it starts a Wi-Fi hotspot called **`Golf-Settings`** and the
+   panel switches to **`WIFI SETUP / JOIN WIFI / Golf-Settings`**.
 2. Join that hotspot on your phone — a captive-portal page opens automatically.
    Pick your Wi-Fi network, enter the password, save.
 3. The board stores the credentials on-device (survives reflashing the app) and
@@ -157,7 +157,7 @@ No credentials are compiled in — you set the network with your phone
 
 **To change networks later:** open the [settings page](#-web-settings-page) and
 press **Reconfigure Wi-Fi** — the board wipes the saved network and re-opens the
-`GolfBoard-setup` hotspot, so a boxed unit needs no physical buttons. The hotspot
+`Golf-Settings` hotspot, so a boxed unit needs no physical buttons. The hotspot
 name is `WIFI_SETUP_AP_NAME` in [`include/config.h`](include/config.h).
 
 ---
@@ -167,6 +167,8 @@ name is `WIFI_SETUP_AP_NAME` in [`include/config.h`](include/config.h).
 Once the board is on your network it serves a small settings page — no app, just a
 browser. Open **[`http://golfboard.local/`](http://golfboard.local/)** (mDNS) or
 the board's IP address (printed to the serial log, and shown on the page itself).
+The `Golf-Settings` hotspot also stays on after the board connects, so from any
+phone you can join it and open **`http://192.168.4.1/`** instead.
 
 From there you can, without reflashing:
 

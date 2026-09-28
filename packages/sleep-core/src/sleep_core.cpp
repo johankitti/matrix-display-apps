@@ -116,6 +116,9 @@ String sleepWebSection(const NightSettings& s) {
       ".nm-scale{display:flex;justify-content:space-between;font-size:11px;opacity:.6;margin:6px 2px 0;"
       "font-variant-numeric:tabular-nums}"
       ".nm-off{opacity:.4}"
+      ".nm-row{display:flex;gap:8px;margin-top:10px}.nm-row>div{flex:1}"
+      ".nm-row span{display:block;font-size:13px;font-weight:600;margin-bottom:3px}"
+      ".nm-row select{width:100%}"
       "</style>"
       "<div class=nm-sec><label class=nm-tgl><input type=checkbox name=nEn id=nmEn ");
   if (s.enabled) h += "checked";
@@ -126,7 +129,11 @@ String sleepWebSection(const NightSettings& s) {
          "<div class=nm-h id=nmHs tabindex=0 role=slider aria-label='Sleep start'></div>"
          "<div class=nm-h id=nmHe tabindex=0 role=slider aria-label='Sleep end'></div>"
          "</div>"
-         "<div class=nm-scale><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>");
+         "<div class=nm-scale><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>"
+         // Plain hour pickers mirror the handles — the reliable way to set a
+         // window across midnight (e.g. 21 -> 07) on a small touch screen.
+         "<div class=nm-row><div><span>From</span><select id=nmPs></select></div>"
+         "<div><span>To</span><select id=nmPe></select></div></div>");
   h += "<input type=hidden name=nStart id=nmS value=" + String(s.startHour) + ">";
   h += "<input type=hidden name=nEnd id=nmE value=" + String(s.endHour) + ">";
   h += F(
@@ -134,7 +141,8 @@ String sleepWebSection(const NightSettings& s) {
       "var tl=document.getElementById('nmTl'),hs=document.getElementById('nmHs'),he=document.getElementById('nmHe'),"
       "fa=document.getElementById('nmFa'),fb=document.getElementById('nmFb'),"
       "iS=document.getElementById('nmS'),iE=document.getElementById('nmE'),"
-      "sum=document.getElementById('nmSum'),en=document.getElementById('nmEn');"
+      "sum=document.getElementById('nmSum'),en=document.getElementById('nmEn'),"
+      "ps=document.getElementById('nmPs'),pe=document.getElementById('nmPe');"
       "var st=+iS.value||0,ed=+iE.value||0,drag=null;"
       "function p(x){return x/24*100}"
       "function f(x){return (x<10?'0':'')+x+':00'}"
@@ -144,14 +152,16 @@ String sleepWebSection(const NightSettings& s) {
       "if(st<=ed){fa.style.display='block';fa.style.left=p(st)+'%';fa.style.width=p(ed-st)+'%';fb.style.display='none';}"
       "else{fa.style.display='block';fa.style.left=p(st)+'%';fa.style.width=p(24-st)+'%';"
       "fb.style.display='block';fb.style.left='0';fb.style.width=p(ed)+'%';}"
-      "iS.value=st;iE.value=ed;"
+      "iS.value=st;iE.value=ed;ps.value=st;pe.value=ed;"
       "sum.innerHTML=en.checked?('\\uD83C\\uDF19 Sleeps '+f(st)+' \\u2192 '+f(ed)+' \\u00B7 '+dur()+' h'):'Night mode off \\u2014 panel stays on';"
       "tl.classList.toggle('nm-off',!en.checked);}"
       "function hAt(cx){var r=tl.getBoundingClientRect();var v=Math.round((cx-r.left)/r.width*24);"
-      "return v<0?0:v>23?23:v;}"
+      "return v<0?0:v>23?0:v;}"
       "function set(cx){var v=hAt(cx);if(drag=='s')st=v;else ed=v;draw();}"
       "tl.addEventListener('pointerdown',function(e){var r=tl.getBoundingClientRect();"
-      "var v=(e.clientX-r.left)/r.width*24;drag=Math.abs(v-st)<=Math.abs(v-ed)?'s':'e';"
+      "var v=(e.clientX-r.left)/r.width*24;"
+      "function cd(a){var d=Math.abs(v-a)%24;return Math.min(d,24-d)}"
+      "drag=e.target==hs?'s':e.target==he?'e':cd(st)<=cd(ed)?'s':'e';"
       "tl.setPointerCapture(e.pointerId);set(e.clientX);e.preventDefault();});"
       "tl.addEventListener('pointermove',function(e){if(drag)set(e.clientX);});"
       "tl.addEventListener('pointerup',function(){drag=null;});"
@@ -160,6 +170,9 @@ String sleepWebSection(const NightSettings& s) {
       "e.key=='ArrowRight'||e.key=='ArrowUp'?1:0;if(!d)return;e.preventDefault();"
       "if(w=='s')st=(st+d+24)%24;else ed=(ed+d+24)%24;draw();};}"
       "hs.addEventListener('keydown',key('s'));he.addEventListener('keydown',key('e'));"
+      "for(var i=0;i<24;i++){ps.add(new Option(f(i),i));pe.add(new Option(f(i),i));}"
+      "ps.addEventListener('change',function(){st=+ps.value;draw();});"
+      "pe.addEventListener('change',function(){ed=+pe.value;draw();});"
       "en.addEventListener('change',draw);draw();"
       "})();</script>");
 

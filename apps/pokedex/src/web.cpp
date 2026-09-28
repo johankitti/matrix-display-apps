@@ -91,7 +91,6 @@ void webInit() {
     webServer().on("/", handleRoot);
     webServer().on("/save", HTTP_POST, handleSave);
     sleepWebRegister(&g_settings.night, settingsSave);   // POST /night (shared)
-    webServer().onNotFound(handleRoot);   // captive-style: any path shows settings
     webCoreBegin(HOSTNAME);   // mDNS + /restart + /wifi + server.begin()
 }
 

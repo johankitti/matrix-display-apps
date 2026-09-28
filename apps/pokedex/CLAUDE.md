@@ -29,7 +29,7 @@ board-config, overridable in `config.h`). Inputs:
      (3 min), showing a "connecting to Wi-Fi" screen. This rides out a router that's
      still booting after a power cut — it does **not** bail to the portal on the
      first miss.
-  2. **No creds / still failing:** open the `Pokedex-Setup` AP (see `AP_SETUP_SSID`);
+  2. **No creds / still failing:** open the `Pokedex-Settings` AP (see `AP_SETUP_SSID`);
      the panel shows the join screen + portal address. The portal has a timeout
      (`NET_PORTAL_TIMEOUT_SEC`, 3 min); if unconfigured it **loops back to step 1**,
      so a transient outage self-heals and a changed network can still be set up.
@@ -41,7 +41,8 @@ board-config, overridable in `config.h`). Inputs:
 ## Settings web UI
 - After Wi-Fi connects, the device runs a small `WebServer` (`src/web.*`) + mDNS
   at **http://pokedex-display.local/** (`HOSTNAME`), or the IP if `.local` doesn't
-  resolve. The page edits three settings, saved to NVS (`src/settings.*`):
+  resolve. net-core also keeps the `Pokedex-Settings` AP up alongside the station
+  link, so the same page is always at **http://192.168.4.1/** via the hotspot. The page edits three settings, saved to NVS (`src/settings.*`):
   - **Seconds per slide** (`DURATION_MIN_SEC`..`MAX`).
   - **Order** — random, or sequential 1→last (wraps).
   - **Animation** — `full` (whole dex, animated where available + static fallback),

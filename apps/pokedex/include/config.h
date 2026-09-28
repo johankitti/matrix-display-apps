@@ -109,7 +109,7 @@
 // ---- Wi-Fi setup portal ------------------------------------------------------
 // Credentials are provisioned via WiFiManager's captive portal (stored in NVS),
 // not compiled in. Join this AP during setup to configure your network.
-#define AP_SETUP_SSID   "Pokedex-Setup"
+#define AP_SETUP_SSID   "Pokedex-Settings"
 
 // Headless resilience (no setup button on the finished unit): on boot, patiently
 // retry the SAVED network for NET_CONNECT_TIMEOUT_MS (covers a router still coming

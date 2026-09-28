@@ -22,7 +22,9 @@
 WebServer& webServer();
 
 // Start mDNS (http://<hostname>.local/), register the common /restart and /wifi
-// handlers, and begin serving. Call once, after registering app routes.
+// handlers plus a catch-all redirect to /, and begin serving. If the setup AP
+// is up, also starts a captive DNS so phones joining it pop up the settings
+// page. Call once, after registering app routes.
 void webCoreBegin(const char* hostname);
 
 // Service pending requests — call often from loop().
