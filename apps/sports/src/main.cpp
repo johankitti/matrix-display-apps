@@ -11,6 +11,7 @@
 #include <WiFi.h>
 #include <display_core.h>   // shared panel object + text helpers
 #include <input_core.h>     // rotary-encoder brightness knob
+#include <net_core.h>       // netEnsure
 #include <Fonts/TomThumb.h>
 
 #include "config.h"
@@ -46,8 +47,8 @@ static uint32_t nextPollDelay(int i, bool ok) {
   switch (teamPhase(i, now)) {
     case PH_COUNTDOWN: {
       // Wake right at kick-off so the live feed takes over promptly.
-      long untilStart = (long)(g.start - now);
-      if ((uint32_t)untilStart * 1000UL < POLL_IDLE_MS) return (uint32_t)untilStart * 1000UL + 1000UL;
+      long untilStart = (long)(g.start - now);   // seconds; compare before scaling
+      if (untilStart < (long)(POLL_IDLE_MS / 1000)) return (uint32_t)untilStart * 1000UL + 1000UL;
       return POLL_IDLE_MS;
     }
     case PH_LIVE:   // live by the clock but no live feed for this team
@@ -62,11 +63,14 @@ static uint32_t nextPollDelay(int i, bool ok) {
 // fetches (each HTTPS fetch blocks for a second or two).
 static void pollTeams(bool forceAll) {
   if (forceAll)
-    // teamState starts zeroed (nextFetchMs = 0), so every team is due at once.
+    for (int i = 0; i < TEAM_COUNT; i++) teamState[i].nextFetchMs = millis();
 
   for (int i = 0; i < TEAM_COUNT; i++) {
     if ((int32_t)(millis() - teamState[i].nextFetchMs) < 0) continue;
-    if (WiFi.status() != WL_CONNECTED) {
+    // Link down: try a reconnect (saved creds, never the portal); if that
+    // fails, flag the data stale and retry later.
+    if (WiFi.status() != WL_CONNECTED && !netEnsure()) {
+      teamState[i].lastOk = false;
       teamState[i].nextFetchMs = millis() + POLL_RETRY_MS;
       continue;
     }
@@ -106,7 +110,7 @@ void setup() {
   webStart();
   Serial.printf("settings: http://%s.local/\n", HOSTNAME);
 
-  for (int i = 0; i < TEAM_COUNT; i++) teamState[i].nextFetchMs = millis();
+  // teamState starts zeroed (nextFetchMs = 0), so every team is due at once.
   screenRender(time(nullptr), false);
 }
 

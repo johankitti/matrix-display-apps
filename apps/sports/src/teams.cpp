@@ -185,7 +185,10 @@ static bool espnHasTeam(const TeamDef& t, JsonObjectConst c) {
 // is in progress. After a boot that could mean booting mid-game and skipping
 // straight to the next fixture — so on the first fetch, also look at today's
 // league scoreboard for a live game of ours.
-static bool espnFindLiveInLeague(const TeamDef& t, const char* league, Game& out) {
+// Returns false only if the scoreboard couldn't be fetched; *found says
+// whether a live game of ours was picked up into `out`.
+static bool espnFindLiveInLeague(const TeamDef& t, const char* league, Game& out, bool* found) {
+  *found = false;
   char url[160];
   snprintf(url, sizeof(url), ESPN_LEAGUE_SCOREBOARD_URL, league);
   JsonDocument filter;
@@ -202,14 +205,15 @@ static bool espnFindLiveInLeague(const TeamDef& t, const char* league, Game& out
     strlcpy(out.liveId, e["id"] | "", sizeof(out.liveId));
     espnApply(t, c, out);
     Serial.printf("[%s] booted mid-game, picked up live event %s\n", t.name, out.liveId);
+    *found = true;
     return true;
   }
-  return false;
+  return true;
 }
 
 // Next game from the team endpoint's nextEvent (~20 KB; the NFL schedule
 // endpoint would be ~290 KB for the same answer).
-static bool fetchEspnSchedule(int i, Game& out, bool firstFetch) {
+static bool fetchEspnSchedule(int i, Game& out) {
   const TeamDef& t = TEAMS[i];
   char url[160];
   snprintf(url, sizeof(url), ESPN_TEAM_URL, t.feed);
@@ -231,13 +235,19 @@ static bool fetchEspnSchedule(int i, Game& out, bool firstFetch) {
     if (!bestStart || start < bestStart) { best = e; bestStart = start; }
   }
 
-  char league[24];
+  char league[sizeof(out.liveLeague)];
   espnLeague(t.feed, bestStart ? (best["league"]["slug"] | "") : "", league, sizeof(league));
 
-  // Boot check needs a concrete league: "soccer/all/scoreboard" is ~1 MB.
+  // After boot: is a game of ours already live? Needs a concrete league
+  // ("soccer/all/scoreboard" is ~1 MB); retried until the check actually ran.
   size_t ll = strlen(league);
   bool concrete = ll < 4 || strcmp(league + ll - 4, "/all") != 0;
-  if (firstFetch && concrete && espnFindLiveInLeague(t, league, out)) return true;
+  if (!teamState[i].liveChecked) {
+    bool found = false;
+    if (!concrete || espnFindLiveInLeague(t, league, out, &found))
+      teamState[i].liveChecked = true;
+    if (found) return true;
+  }
 
   memset(&out, 0, sizeof(out));
   if (!bestStart) return true;  // good fetch, just nothing scheduled
@@ -316,8 +326,9 @@ static void haClock(const char* period, char* out, size_t n) {
   if (!period || !*period) { out[0] = '\0'; return; }
   int p = atoi(period);
   if (p >= 1 && p <= 3) snprintf(out, n, "P%d", p);
-  else if (p == 4 || strcasestr(period, "OT") || strcasestr(period, "over")) strlcpy(out, "OT", n);
-  else if (p == 5 || strcasestr(period, "SO") || strcasestr(period, "shoot")) strlcpy(out, "SO", n);
+  // Shootout first: "Shootout" contains "oot", which a case-blind "OT" matches.
+  else if (p == 5 || strcasestr(period, "shoot") || !strcasecmp(period, "SO")) strlcpy(out, "SO", n);
+  else if (p == 4 || strcasestr(period, "over") || !strcasecmp(period, "OT")) strlcpy(out, "OT", n);
   else foldUpper(period, out, n > 4 ? 4 : n);
 }
 
@@ -414,8 +425,10 @@ static bool fetchHaSchedule(int i, Game& out) {
                out.home ? oppCode : t.id);
       // Resolve it once per game: proper short name + exact face-off, and it
       // confirms the slug works before game time. A miss = no live score.
+      // (Reuse keeps TheSportsDB's fresh start time; a same-day reschedule
+      // still lands, and HA corrects it again once live polling starts.)
       const Game& prev = teamState[i].game;
-      if (strcmp(prev.liveId, out.liveId) == 0) out = prev;
+      if (strcmp(prev.liveId, out.liveId) == 0) strlcpy(out.opp, prev.opp, sizeof(out.opp));
       else if (!fetchHaGame(t, out)) out.liveId[0] = '\0';
     }
     break;
@@ -470,8 +483,7 @@ bool teamFetch(int i) {
     // Game on (or just ended): poll the live feed, updating in place.
     ok = t.source == SRC_ESPN ? fetchEspnLive(t, g) : fetchHaGame(t, g);
   } else {
-    ok = t.source == SRC_ESPN ? fetchEspnSchedule(i, g, !s.everFetched)
-                              : fetchHaSchedule(i, g);
+    ok = t.source == SRC_ESPN ? fetchEspnSchedule(i, g) : fetchHaSchedule(i, g);
   }
 
   s.tried = true;

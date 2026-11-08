@@ -37,7 +37,7 @@ struct Game {
   char decided[4];     // "OT" / "SO" on a final decided after regulation
   time_t finalSeen;    // when GS_FINAL was first seen (for the FT hold)
   // Live-feed handle, resolved from the schedule fetch:
-  char liveLeague[24]; // ESPN "soccer/swe.1" / "football/nfl"; unused for HA
+  char liveLeague[48]; // ESPN "soccer/swe.1" / "football/nfl"; unused for HA
   char liveId[32];     // ESPN event id | HA game slug "20261111-lif-aik"
 };
 
@@ -46,6 +46,7 @@ struct TeamState {
   bool tried;          // at least one fetch attempted
   bool everFetched;    // at least one successful fetch
   bool lastOk;         // most recent fetch succeeded
+  bool liveChecked;    // ESPN: the after-boot "already live?" scoreboard check ran
   time_t doneThrough;  // end time of the last finished game (lagging-feed guard)
   uint32_t nextFetchMs;
 };
