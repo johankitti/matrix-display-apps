@@ -75,7 +75,7 @@ Norra Sköndal
 | **⛳ golf** | PGA Tour leaderboard — top 5 + your pinned golfers, or the next event | ESPN scoreboard *(keyless)* | [→](apps/golf) |
 | **🔴 pokedex** | A Pokémon sprite (animated GIF / static PNG) + name, on a timer | PokéAPI sprites CDN | [→](apps/pokedex) |
 | **🚌 buss** | The next bus departures from a chosen Stockholm stop | SL Transport API *(keyless)* | [→](apps/buss) |
-| **⚽ sports** | Next game + live countdown for four favourite teams | ESPN + TheSportsDB *(keyless)* | [→](apps/sports) |
+| **⚽ sports** | Next game + live countdown for four favourite teams | ESPN + TheSportsDB + hockeyallsvenskan.se *(keyless)* | [→](apps/sports) |
 
 Every app:
 

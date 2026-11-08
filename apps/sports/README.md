@@ -44,7 +44,7 @@ friendlies for the national team). ESPN has no Swedish hockey, so AIK Hockey com
 from TheSportsDB's free tier (`eventsnext.php`, public key `123`).
 
 **Live scores** come from different endpoints than the fixtures, because ESPN's
-team schedule drops a game while it's in progress:
+team endpoints (`nextEvent`, schedule) drop a game while it's in progress:
 
 - ESPN: the single-event scoreboard `…/<sport>/<league>/scoreboard/<eventId>`
   (~10 KB). The league is the real competition (`soccer/swe.1`), since `all`
