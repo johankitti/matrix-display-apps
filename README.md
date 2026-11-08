@@ -75,6 +75,7 @@ Norra Sköndal
 | **⛳ golf** | PGA Tour leaderboard — top 5 + your pinned golfers, or the next event | ESPN scoreboard *(keyless)* | [→](apps/golf) |
 | **🔴 pokedex** | A Pokémon sprite (animated GIF / static PNG) + name, on a timer | PokéAPI sprites CDN | [→](apps/pokedex) |
 | **🚌 buss** | The next bus departures from a chosen Stockholm stop | SL Transport API *(keyless)* | [→](apps/buss) |
+| **⚽ sports** | Next game + live countdown for four favourite teams | ESPN + TheSportsDB + hockeyallsvenskan.se *(keyless)* | [→](apps/sports) |
 
 Every app:
 
@@ -92,7 +93,8 @@ matrix-display-apps/
 ├── apps/                     # one flashable firmware per app
 │   ├── golf/                 # ⛳ live PGA leaderboard
 │   ├── pokedex/              # 🔴 animated Pokédex slideshow
-│   └── buss/                 # 🚌 live Stockholm bus departures
+│   ├── buss/                 # 🚌 live Stockholm bus departures
+│   └── sports/               # ⚽ next game + countdown for favourite teams
 │
 ├── packages/                 # shared libraries (PlatformIO lib_extra_dirs)
 │   ├── board-config/         # HUB75 ↔ ESP32-S3-Zero pin map + panel geometry
@@ -127,6 +129,9 @@ pio run -d apps/pokedex -t upload -t monitor
 
 # buss
 pio run -d apps/buss -t upload -t monitor
+
+# sports
+pio run -d apps/sports -t upload -t monitor
 ```
 
 > **Environments:** the default `s3mini` targets the Waveshare ESP32-S3-Zero.

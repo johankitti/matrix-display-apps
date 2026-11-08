@@ -57,11 +57,12 @@ int displayTextWidth(const char* s) {
   return (int)w;
 }
 
-void displayText(int x, int baseY, const char* s, uint16_t color) {
-  if (!dma_display) return;
+int displayText(int x, int baseY, const char* s, uint16_t color) {
+  if (!dma_display) return x;
   dma_display->setTextColor(color);
   dma_display->setCursor(x, baseY);
   dma_display->print(s);
+  return dma_display->getCursorX();
 }
 
 void displayTextRight(int xRight, int baseY, const char* s, uint16_t color) {
