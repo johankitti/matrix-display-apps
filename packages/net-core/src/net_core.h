@@ -13,6 +13,7 @@
 // =============================================================================
 
 #include <Arduino.h>
+#include <time.h>
 
 struct NetConfig {
   const char* apSsid = "Display-Settings";  // setup / settings access-point name
@@ -39,8 +40,14 @@ bool netEnsure();
 // HTTP(S) GET `url` into a freshly-allocated buffer (PSRAM preferred, internal
 // RAM fallback). On success sets *outBuf/*outLen and returns true; the caller
 // owns the buffer and must netFree(*outBuf). TLS certs are not verified (the
-// content is public).
-bool httpGetBinary(const char* url, uint8_t** outBuf, size_t* outLen);
+// content is public). Requests HTTP/1.0 so the body is never chunk-encoded.
+// If serverDate is non-null it receives the response's Date header as a UTC
+// epoch (0 if absent/unparseable) — a cheap clock source before/without NTP.
+bool httpGetBinary(const char* url, uint8_t** outBuf, size_t* outLen,
+                   time_t* serverDate = nullptr);
+
+// Civil UTC date/time -> epoch, without mktime() (which applies the local TZ).
+time_t netUtcEpoch(int y, int mon, int d, int hh, int mm, int ss);
 
 // Free a buffer returned by httpGetBinary().
 void netFree(uint8_t* buf);

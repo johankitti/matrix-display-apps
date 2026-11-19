@@ -41,8 +41,11 @@ uint16_t displayColor(uint8_t r, uint8_t g, uint8_t b);
 // ---- Proportional-text helpers (operate on the shared panel + current font) --
 // Width in pixels of `s` in the current font.
 int  displayTextWidth(const char* s);
-// Draw `s` with its left edge at x, baseline at baseY.
-void displayText(int x, int baseY, const char* s, uint16_t color);
+// Draw `s` with its left edge at x, baseline at baseY. Returns the x where the
+// next glyph would go (font advance), so segments can be chained:
+//   x = displayText(x, y, "AIK", yellow); x = displayText(x, y, "-", gray);
+// (displayTextWidth() is the ink width — use it for alignment, not chaining.)
+int  displayText(int x, int baseY, const char* s, uint16_t color);
 // Draw `s` right-aligned so its right edge sits at xRight.
 void displayTextRight(int xRight, int baseY, const char* s, uint16_t color);
 

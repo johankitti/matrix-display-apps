@@ -103,9 +103,32 @@ bool netEnsure() {
   return WiFi.status() == WL_CONNECTED;
 }
 
-bool httpGetBinary(const char* url, uint8_t** outBuf, size_t* outLen) {
+// Howard Hinnant's days-from-civil algorithm.
+time_t netUtcEpoch(int y, int m, int d, int hh, int mm, int ss) {
+  y -= m <= 2;
+  int era = (y >= 0 ? y : y - 399) / 400;
+  unsigned yoe = (unsigned)(y - era * 400);
+  unsigned doy = (153u * (unsigned)(m + (m > 2 ? -3 : 9)) + 2u) / 5u + (unsigned)d - 1u;
+  unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
+  long days = (long)era * 146097L + (long)doe - 719468L;
+  return (time_t)days * 86400 + hh * 3600 + mm * 60 + ss;
+}
+
+// "Sun, 08 Nov 2026 08:41:07 GMT" -> epoch, 0 on failure.
+static time_t parseHttpDate(const char* s) {
+  static const char* MON = "janfebmaraprmayjunjulaugsepoctnovdec";
+  char mon[4] = {0};
+  int d, y, hh, mm, ss;
+  if (sscanf(s, "%*3s, %d %3s %d %d:%d:%d", &d, mon, &y, &hh, &mm, &ss) != 6) return 0;
+  for (int i = 0; i < 12; i++)
+    if (strncasecmp(mon, MON + i * 3, 3) == 0) return netUtcEpoch(y, i + 1, d, hh, mm, ss);
+  return 0;
+}
+
+bool httpGetBinary(const char* url, uint8_t** outBuf, size_t* outLen, time_t* serverDate) {
   *outBuf = nullptr;
   *outLen = 0;
+  if (serverDate) *serverDate = 0;
   if (!netEnsure()) return false;
 
   WiFiClientSecure client;
@@ -115,7 +138,10 @@ bool httpGetBinary(const char* url, uint8_t** outBuf, size_t* outLen) {
   http.setTimeout(HTTP_TIMEOUT_MS);
   http.setConnectTimeout(HTTP_TIMEOUT_MS);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.useHTTP10(true);   // no chunked transfer encoding -> raw body on the stream
   if (!http.begin(client, url)) return false;
+  static const char* headerKeys[] = {"Date"};
+  if (serverDate) http.collectHeaders(headerKeys, 1);
 
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
@@ -123,6 +149,8 @@ bool httpGetBinary(const char* url, uint8_t** outBuf, size_t* outLen) {
     http.end();
     return false;
   }
+
+  if (serverDate) *serverDate = parseHttpDate(http.header("Date").c_str());
 
   int len = http.getSize();             // Content-Length, or -1 if unknown
   WiFiClient* stream = http.getStreamPtr();
@@ -133,7 +161,9 @@ bool httpGetBinary(const char* url, uint8_t** outBuf, size_t* outLen) {
 
   size_t got = 0;
   uint32_t lastData = millis();
-  while (http.connected() && (len < 0 || got < (size_t)len)) {
+  // Keep draining after the server closes: with HTTP/1.0 it hangs up right
+  // after the body, often while the tail is still in the receive buffer.
+  while ((http.connected() || stream->available()) && (len < 0 || got < (size_t)len)) {
     size_t avail = stream->available();
     if (avail) {
       if (got + avail > cap) {                 // grow when length unknown
